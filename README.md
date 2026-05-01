@@ -1,0 +1,83 @@
+# SkillMatch AI
+
+SkillMatch AI is a Next.js application for matching resumes and candidate profiles against target roles. It can run locally with demo credentials and in-memory persistence, or with Neon Postgres and Cloudflare R2 for persistent data and resume object storage.
+
+## Local Setup
+
+1. Install dependencies:
+
+   ```powershell
+   npm ci
+   ```
+
+2. Create a local environment file:
+
+   ```powershell
+   Copy-Item .env.example .env.local
+   ```
+
+3. Edit `.env.local` with any database, auth, or object storage settings you want to enable.
+
+4. Start the development server:
+
+   ```powershell
+   npm run dev
+   ```
+
+5. Open `http://localhost:3000`.
+
+## Environment Variables
+
+The available variables are listed in `.env.example`.
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Optional for local development; required for persistent database storage | Neon/Postgres connection string used by `lib/db.ts`. When absent, analyses, candidate recommendations, and audit events are kept in process memory. |
+| `NEXT_PUBLIC_APP_NAME` | Optional | Public application name displayed by the app. |
+| `AUTH_SECRET` | Recommended | Secret used to sign the session cookie. If absent, the app uses a local demo secret from `lib/auth.ts`; set a long random value outside local demos. |
+| `AUTH_USERS_JSON` | Optional | JSON array of credential users. Each user needs `name`, `email`, `role`, and either `password` or `passwordHash`. When absent, demo credential users from `lib/auth-model.ts` are used. |
+| `R2_ACCOUNT_ID` | Optional | Cloudflare account ID for R2/S3-compatible resume storage. |
+| `R2_ACCESS_KEY_ID` | Optional | R2 access key ID. |
+| `R2_SECRET_ACCESS_KEY` | Optional | R2 secret access key. |
+| `R2_BUCKET` | Optional | R2 bucket name. |
+| `R2_PUBLIC_BASE_URL` | Optional | Public base URL for stored resumes. If absent while R2 is configured, stored resume URLs use the `r2://bucket/key` form. |
+
+## Database Schema
+
+Persistent storage uses the tables and indexes in `db/schema.sql`:
+
+- `analyses`
+- `audit_events`
+- `candidate_recommendations`
+
+Apply the schema before running against a real `DATABASE_URL`. With `psql` available, you can run:
+
+```powershell
+psql "$env:DATABASE_URL" -f db/schema.sql
+```
+
+You can also paste the contents of `db/schema.sql` into the Neon SQL editor for the target database. The statements use `create table if not exists` and `create index if not exists`, so reapplying the file is safe for the current schema.
+
+## Local Fallbacks
+
+The app is designed to run without external services during local development:
+
+- If `DATABASE_URL` is not set, `lib/db.ts` stores analyses, candidate recommendations, and audit events in memory. Data resets when the dev server restarts.
+- If any required R2 setting is missing, `lib/storage.ts` stores uploaded resume bytes in an in-memory map and returns `local://...` URLs. Those files are not persisted across server restarts.
+- If `AUTH_USERS_JSON` is not set, demo users are loaded from `lib/auth-model.ts`.
+- If `AUTH_SECRET` is not set, session cookies are signed with a local demo secret. Configure this value for shared, staging, or production environments.
+
+## Checks and Workflows
+
+Common local checks:
+
+```powershell
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+```
+
+`npm run test:e2e` starts the app with Playwright's configured web server at `http://127.0.0.1:3000/login` and runs the Chromium end-to-end tests from `tests/e2e`.
+
+The GitHub Actions workflow in `.github/workflows/ci.yml` runs on pull requests and pushes to `main`. It uses Node.js 22, installs dependencies with `npm ci`, installs the Playwright Chromium browser, then runs lint, unit tests, build, and Playwright end-to-end tests.
