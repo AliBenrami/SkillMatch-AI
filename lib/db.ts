@@ -32,6 +32,14 @@ function getSql() {
   return neon(process.env.DATABASE_URL);
 }
 
+function asJson<T>(value: unknown): T {
+  if (typeof value === "string") {
+    return JSON.parse(value) as T;
+  }
+
+  return value as T;
+}
+
 export async function saveAnalysis(input: {
   employeeName: string;
   resumeText: string;
@@ -71,8 +79,8 @@ export async function saveAnalysis(input: {
       ${input.result.role.title},
       ${input.resumeText},
       ${input.result.score},
-      ${JSON.stringify(input.result.matchedSkills)},
-      ${JSON.stringify(record.missingSkills)},
+      ${JSON.stringify(input.result.matchedSkills)}::jsonb,
+      ${JSON.stringify(record.missingSkills)}::jsonb,
       ${input.result.explanation}
     )
   `;
@@ -83,7 +91,7 @@ export async function saveAnalysis(input: {
       ${input.employeeName},
       'recommendation_generation',
       ${record.id},
-      ${JSON.stringify({ targetRole: input.result.role.title, score: input.result.score })}
+      ${JSON.stringify({ targetRole: input.result.role.title, score: input.result.score })}::jsonb
     )
   `;
 
@@ -113,7 +121,7 @@ export async function appendAuditEvent(input: {
 
   await sql`
     insert into audit_events (actor, action, entity_id, details)
-    values (${input.actor}, ${input.action}, ${input.entityId ?? null}, ${JSON.stringify(input.details)})
+    values (${input.actor}, ${input.action}, ${input.entityId ?? null}, ${JSON.stringify(input.details)}::jsonb)
   `;
 
   return event;
@@ -152,8 +160,8 @@ export async function saveCandidateBatch(input: {
         ${candidate.candidateName},
         ${candidate.fileName},
         ${candidate.storageUrl},
-        ${JSON.stringify(candidate.structured)},
-        ${JSON.stringify(candidate.topPositions)},
+        ${JSON.stringify(candidate.structured)}::jsonb,
+        ${JSON.stringify(candidate.topPositions)}::jsonb,
         ${best?.role.title ?? "No match"},
         ${best?.score ?? 0}
       )
@@ -188,8 +196,8 @@ export async function listCandidateRecommendations() {
     candidateName: String(row.candidate_name),
     fileName: String(row.file_name),
     storageUrl: String(row.storage_url),
-    structured: JSON.parse(String(row.structured_resume)),
-    topPositions: JSON.parse(String(row.top_positions)),
+    structured: asJson<CandidateAnalysis["structured"]>(row.structured_resume),
+    topPositions: asJson<CandidateAnalysis["topPositions"]>(row.top_positions),
     createdAt: new Date(String(row.created_at)).toISOString()
   })) as CandidateAnalysis[];
 }
@@ -213,7 +221,7 @@ export async function listAuditEvents() {
     actor: String(row.actor),
     action: String(row.action),
     entityId: row.entity_id ? String(row.entity_id) : undefined,
-    details: JSON.parse(String(row.details ?? "{}")),
+    details: asJson<Record<string, unknown>>(row.details ?? {}),
     createdAt: new Date(String(row.created_at)).toISOString()
   })) satisfies AuditEvent[];
 }
@@ -243,8 +251,8 @@ export async function listAnalyses() {
     employeeName: String(row.employee_name),
     targetRole: String(row.target_role_title),
     score: Number(row.score),
-    matchedSkills: JSON.parse(String(row.matched_skills ?? "[]")),
-    missingSkills: JSON.parse(String(row.missing_skills ?? "[]")),
+    matchedSkills: asJson<string[]>(row.matched_skills ?? []),
+    missingSkills: asJson<string[]>(row.missing_skills ?? []),
     createdAt: new Date(String(row.created_at)).toISOString()
   })) satisfies AnalysisRecord[];
 }
