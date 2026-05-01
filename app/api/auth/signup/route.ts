@@ -2,17 +2,16 @@ import { NextResponse } from "next/server";
 import { setSessionUser } from "@/lib/auth";
 import { createCredentialUser } from "@/lib/auth-model";
 import { appendAuditEvent } from "@/lib/db";
+import { parseJsonRequest, signupRequestSchema } from "@/lib/validation";
 
 export async function POST(request: Request) {
-  const body = await request.json();
+  const { data, error } = parseJsonRequest(signupRequestSchema, await request.json());
+  if (!data) {
+    return NextResponse.json({ error }, { status: 400 });
+  }
 
   try {
-    const user = await createCredentialUser({
-      name: String(body.name ?? ""),
-      email: String(body.email ?? ""),
-      password: String(body.password ?? ""),
-      role: String(body.role ?? "employee")
-    });
+    const user = await createCredentialUser(data);
 
     await setSessionUser(user);
     await appendAuditEvent({

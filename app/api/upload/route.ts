@@ -7,6 +7,13 @@ import { storeResumeFile } from "@/lib/storage";
 
 const maxFiles = 12;
 const maxFileSize = 8 * 1024 * 1024;
+const allowedResumeExtensions = /\.(pdf|docx|txt)$/i;
+const allowedResumeTypes = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  ""
+]);
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -34,6 +41,10 @@ export async function POST(request: Request) {
     try {
       if (file.size > maxFileSize) {
         throw new Error("File exceeds 8 MB limit.");
+      }
+
+      if (!allowedResumeExtensions.test(file.name) || !allowedResumeTypes.has(file.type)) {
+        throw new Error("Only PDF, DOCX, or TXT resumes are supported.");
       }
 
       const parsed = await extractResumeText(file);

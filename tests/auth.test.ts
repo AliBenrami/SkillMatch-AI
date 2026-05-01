@@ -74,6 +74,16 @@ describe("auth and RBAC", () => {
     expect(parseSessionToken(`${token}tampered`)).toBeNull();
   });
 
+  it("rejects sessions with unknown roles before signing", () => {
+    expect(() =>
+      createSessionToken({
+        name: "Mallory",
+        email: "mallory@amazon.com",
+        role: "super_admin"
+      } as unknown as SessionUser)
+    ).toThrow();
+  });
+
   it("requires AUTH_SECRET in production", () => {
     setNodeEnv("production");
     delete process.env.AUTH_SECRET;

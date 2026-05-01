@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import type { SessionUser } from "./auth-model";
+import { sessionUserSchema, signedSessionPayloadSchema } from "./validation";
 
 const cookieName = "skillmatch_session";
 const localDemoSecret = "skillmatch-ai-local-demo-secret";
@@ -64,32 +65,11 @@ function nowInSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
-function isSignedSessionPayload(value: unknown): value is SignedSessionPayload {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const session = value as Partial<SignedSessionPayload>;
-
-  const issuedAt = session.iat;
-  const expiresAt = session.exp;
-
-  return (
-    typeof session.name === "string" &&
-    typeof session.email === "string" &&
-    typeof session.role === "string" &&
-    typeof issuedAt === "number" &&
-    typeof expiresAt === "number" &&
-    Number.isInteger(issuedAt) &&
-    Number.isInteger(expiresAt) &&
-    issuedAt <= expiresAt
-  );
-}
-
 export function createSessionToken(user: SessionUser) {
+  const safeUser = sessionUserSchema.parse(user);
   const issuedAt = nowInSeconds();
   const signedPayload: SignedSessionPayload = {
-    ...user,
+    ...safeUser,
     iat: issuedAt,
     exp: issuedAt + sessionMaxAgeSeconds
   };
@@ -113,15 +93,17 @@ export function parseSessionToken(token?: string): SessionUser | null {
   }
 
   try {
-    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as unknown;
-    if (!isSignedSessionPayload(session) || session.exp <= nowInSeconds()) {
+    const session = signedSessionPayloadSchema.safeParse(
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as unknown
+    );
+    if (!session.success || session.data.exp <= nowInSeconds()) {
       return null;
     }
 
     return {
-      name: session.name,
-      email: session.email,
-      role: session.role
+      name: session.data.name,
+      email: session.data.email,
+      role: session.data.role
     };
   } catch {
     return null;

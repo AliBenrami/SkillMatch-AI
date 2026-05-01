@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { setSessionUser } from "@/lib/auth";
 import { verifyCredentials } from "@/lib/auth-model";
 import { appendAuditEvent } from "@/lib/db";
+import { loginRequestSchema, parseJsonRequest } from "@/lib/validation";
 
 async function appendLoginAuditEvent(input: {
   actor: string;
@@ -16,9 +17,12 @@ async function appendLoginAuditEvent(input: {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const email = String(body.email ?? "");
-  const password = String(body.password ?? "");
+  const { data, error } = parseJsonRequest(loginRequestSchema, await request.json());
+  if (!data) {
+    return NextResponse.json({ error }, { status: 400 });
+  }
+
+  const { email, password } = data;
   const user = await verifyCredentials(email, password);
 
   if (!user) {
