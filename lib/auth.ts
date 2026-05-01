@@ -71,13 +71,18 @@ function isSignedSessionPayload(value: unknown): value is SignedSessionPayload {
 
   const session = value as Partial<SignedSessionPayload>;
 
+  const issuedAt = session.iat;
+  const expiresAt = session.exp;
+
   return (
     typeof session.name === "string" &&
     typeof session.email === "string" &&
     typeof session.role === "string" &&
-    Number.isInteger(session.iat) &&
-    Number.isInteger(session.exp) &&
-    session.iat <= session.exp
+    typeof issuedAt === "number" &&
+    typeof expiresAt === "number" &&
+    Number.isInteger(issuedAt) &&
+    Number.isInteger(expiresAt) &&
+    issuedAt <= expiresAt
   );
 }
 
