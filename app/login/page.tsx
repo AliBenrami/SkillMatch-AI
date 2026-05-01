@@ -51,6 +51,7 @@ export default function LoginPage() {
         <button className="primary-action" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Signing in..." : "Sign in"}
         </button>
+        <a className="auth-link" href="/signup">Create an account</a>
       </form>
     </main>
   );

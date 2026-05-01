@@ -1,7 +1,6 @@
-import { neon } from "@neondatabase/serverless";
 import { desc } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/neon-http";
 import { analyses, auditEvents, candidateRecommendations } from "@/db/schema";
+import { getDatabase } from "./database";
 import type { CandidateAnalysis, SkillMatchResult } from "./skillmatch";
 
 export type AnalysisRecord = {
@@ -27,14 +26,6 @@ export type AuditEvent = {
   createdAt: string;
 };
 
-function getDb() {
-  if (!process.env.DATABASE_URL) {
-    return null;
-  }
-
-  return drizzle(neon(process.env.DATABASE_URL));
-}
-
 export async function saveAnalysis(input: {
   employeeName: string;
   resumeText: string;
@@ -50,7 +41,7 @@ export async function saveAnalysis(input: {
     createdAt: new Date().toISOString()
   };
 
-  const db = getDb();
+  const db = getDatabase();
   if (!db) {
     memoryStore.unshift(record);
     return record;
@@ -92,7 +83,7 @@ export async function appendAuditEvent(input: {
     details: input.details,
     createdAt: new Date().toISOString()
   };
-  const db = getDb();
+  const db = getDatabase();
 
   if (!db) {
     memoryAuditEvents.unshift(event);
@@ -113,7 +104,7 @@ export async function saveCandidateBatch(input: {
   actor: string;
   candidates: CandidateAnalysis[];
 }) {
-  const db = getDb();
+  const db = getDatabase();
 
   if (!db) {
     memoryCandidates.unshift(...input.candidates);
@@ -149,7 +140,7 @@ export async function saveCandidateBatch(input: {
 }
 
 export async function listCandidateRecommendations() {
-  const db = getDb();
+  const db = getDatabase();
 
   if (!db) {
     return memoryCandidates.slice(0, 20);
@@ -181,7 +172,7 @@ export async function listCandidateRecommendations() {
 }
 
 export async function listAuditEvents() {
-  const db = getDb();
+  const db = getDatabase();
 
   if (!db) {
     return memoryAuditEvents.slice(0, 20);
@@ -211,7 +202,7 @@ export async function listAuditEvents() {
 }
 
 export async function listAnalyses() {
-  const db = getDb();
+  const db = getDatabase();
   if (!db) {
     return memoryStore.slice(0, 8);
   }

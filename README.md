@@ -62,6 +62,8 @@ Then apply generated migrations with:
 npm run db:migrate
 ```
 
+The migration script uses `DATABASE_URL` from the current shell or `.env`.
+
 For the existing bootstrap SQL, you can still run:
 
 ```powershell
@@ -75,6 +77,7 @@ You can also paste the contents of `db/schema.sql` into the Neon SQL editor for 
 The app is designed to run without external services during local development:
 
 - If `DATABASE_URL` is not set, `lib/db.ts` stores analyses, candidate recommendations, and audit events in memory. Data resets when the dev server restarts.
+- Signup requires `DATABASE_URL`; created accounts are stored in the `users` table. When no database is configured, sign in with demo or `AUTH_USERS_JSON` users instead.
 - If any required R2 setting is missing, `lib/storage.ts` stores uploaded resume bytes in an in-memory map and returns `local://...` URLs. Those files are not persisted across server restarts.
 - If `AUTH_USERS_JSON` is not set, demo users are loaded from `lib/auth-model.ts`.
 - If `AUTH_SECRET` is not set, session cookies are signed with a local demo secret. Configure this value for shared, staging, or production environments.

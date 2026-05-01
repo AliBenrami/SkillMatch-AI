@@ -808,6 +808,14 @@ meter {
   line-height: 1.5;
 }
 
+.auth-link {
+  color: #1f6fd1;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+  text-decoration: none;
+}
+
 @media (max-width: 1180px) {
   .product-shell {
     grid-template-columns: 1fr;
