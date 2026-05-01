@@ -3,6 +3,18 @@ import { setSessionUser } from "@/lib/auth";
 import { verifyCredentials } from "@/lib/auth-model";
 import { appendAuditEvent } from "@/lib/db";
 
+async function appendLoginAuditEvent(input: {
+  actor: string;
+  action: "failed_login" | "login";
+  details: Record<string, unknown>;
+}) {
+  try {
+    await appendAuditEvent(input);
+  } catch (error) {
+    console.error("Unable to append login audit event", error);
+  }
+}
+
 export async function POST(request: Request) {
   const body = await request.json();
   const email = String(body.email ?? "");
