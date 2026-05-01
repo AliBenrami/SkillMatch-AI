@@ -44,13 +44,25 @@ The available variables are listed in `.env.example`.
 
 ## Database Schema
 
-Persistent storage uses the tables and indexes in `db/schema.sql`:
+Persistent storage is modeled with Drizzle ORM in `db/schema.ts` and mirrored by the SQL bootstrap file in `db/schema.sql`:
 
 - `analyses`
 - `audit_events`
 - `candidate_recommendations`
 
-Apply the schema before running against a real `DATABASE_URL`. With `psql` available, you can run:
+Apply the schema before running against a real `DATABASE_URL`. To generate Drizzle migrations from the typed schema, run:
+
+```powershell
+npm run db:generate
+```
+
+Then apply generated migrations with:
+
+```powershell
+npm run db:migrate
+```
+
+For the existing bootstrap SQL, you can still run:
 
 ```powershell
 psql "$env:DATABASE_URL" -f db/schema.sql

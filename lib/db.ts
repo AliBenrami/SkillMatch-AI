@@ -1,4 +1,7 @@
 import { neon } from "@neondatabase/serverless";
+import { desc } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/neon-http";
+import { analyses, auditEvents, candidateRecommendations } from "@/db/schema";
 import type { CandidateAnalysis, SkillMatchResult } from "./skillmatch";
 
 export type AnalysisRecord = {
@@ -24,20 +27,12 @@ export type AuditEvent = {
   createdAt: string;
 };
 
-function getSql() {
+function getDb() {
   if (!process.env.DATABASE_URL) {
     return null;
   }
 
-  return neon(process.env.DATABASE_URL);
-}
-
-function asJson<T>(value: unknown): T {
-  if (typeof value === "string") {
-    return JSON.parse(value) as T;
-  }
-
-  return value as T;
+  return drizzle(neon(process.env.DATABASE_URL));
 }
 
 export async function saveAnalysis(input: {
@@ -55,45 +50,30 @@ export async function saveAnalysis(input: {
     createdAt: new Date().toISOString()
   };
 
-  const sql = getSql();
-  if (!sql) {
+  const db = getDb();
+  if (!db) {
     memoryStore.unshift(record);
     return record;
   }
 
-  await sql`
-    insert into analyses (
-      id,
-      employee_name,
-      target_role_id,
-      target_role_title,
-      resume_text,
-      score,
-      matched_skills,
-      missing_skills,
-      explanation
-    ) values (
-      ${record.id},
-      ${input.employeeName},
-      ${input.result.role.id},
-      ${input.result.role.title},
-      ${input.resumeText},
-      ${input.result.score},
-      ${JSON.stringify(input.result.matchedSkills)}::jsonb,
-      ${JSON.stringify(record.missingSkills)}::jsonb,
-      ${input.result.explanation}
-    )
-  `;
+  await db.insert(analyses).values({
+    id: record.id,
+    employeeName: input.employeeName,
+    targetRoleId: input.result.role.id,
+    targetRoleTitle: input.result.role.title,
+    resumeText: input.resumeText,
+    score: input.result.score,
+    matchedSkills: input.result.matchedSkills,
+    missingSkills: record.missingSkills,
+    explanation: input.result.explanation
+  });
 
-  await sql`
-    insert into audit_events (actor, action, entity_id, details)
-    values (
-      ${input.employeeName},
-      'recommendation_generation',
-      ${record.id},
-      ${JSON.stringify({ targetRole: input.result.role.title, score: input.result.score })}::jsonb
-    )
-  `;
+  await db.insert(auditEvents).values({
+    actor: input.employeeName,
+    action: "recommendation_generation",
+    entityId: record.id,
+    details: { targetRole: input.result.role.title, score: input.result.score }
+  });
 
   return record;
 }
@@ -112,17 +92,19 @@ export async function appendAuditEvent(input: {
     details: input.details,
     createdAt: new Date().toISOString()
   };
-  const sql = getSql();
+  const db = getDb();
 
-  if (!sql) {
+  if (!db) {
     memoryAuditEvents.unshift(event);
     return event;
   }
 
-  await sql`
-    insert into audit_events (actor, action, entity_id, details)
-    values (${input.actor}, ${input.action}, ${input.entityId ?? null}, ${JSON.stringify(input.details)}::jsonb)
-  `;
+  await db.insert(auditEvents).values({
+    actor: input.actor,
+    action: input.action,
+    entityId: input.entityId ?? null,
+    details: input.details
+  });
 
   return event;
 }
@@ -131,9 +113,9 @@ export async function saveCandidateBatch(input: {
   actor: string;
   candidates: CandidateAnalysis[];
 }) {
-  const sql = getSql();
+  const db = getDb();
 
-  if (!sql) {
+  if (!db) {
     memoryCandidates.unshift(...input.candidates);
     await appendAuditEvent({
       actor: input.actor,
@@ -145,27 +127,16 @@ export async function saveCandidateBatch(input: {
 
   for (const candidate of input.candidates) {
     const best = candidate.topPositions[0];
-    await sql`
-      insert into candidate_recommendations (
-        id,
-        candidate_name,
-        file_name,
-        storage_url,
-        structured_resume,
-        top_positions,
-        best_role_title,
-        best_score
-      ) values (
-        ${candidate.id},
-        ${candidate.candidateName},
-        ${candidate.fileName},
-        ${candidate.storageUrl},
-        ${JSON.stringify(candidate.structured)}::jsonb,
-        ${JSON.stringify(candidate.topPositions)}::jsonb,
-        ${best?.role.title ?? "No match"},
-        ${best?.score ?? 0}
-      )
-    `;
+    await db.insert(candidateRecommendations).values({
+      id: candidate.id,
+      candidateName: candidate.candidateName,
+      fileName: candidate.fileName,
+      storageUrl: candidate.storageUrl,
+      structuredResume: candidate.structured,
+      topPositions: candidate.topPositions,
+      bestRoleTitle: best?.role.title ?? "No match",
+      bestScore: best?.score ?? 0
+    });
   }
 
   await appendAuditEvent({
@@ -178,81 +149,94 @@ export async function saveCandidateBatch(input: {
 }
 
 export async function listCandidateRecommendations() {
-  const sql = getSql();
+  const db = getDb();
 
-  if (!sql) {
+  if (!db) {
     return memoryCandidates.slice(0, 20);
   }
 
-  const rows = await sql`
-    select id, candidate_name, file_name, storage_url, structured_resume, top_positions, created_at
-    from candidate_recommendations
-    order by created_at desc
-    limit 20
-  `;
+  const rows = await db
+    .select({
+      id: candidateRecommendations.id,
+      candidateName: candidateRecommendations.candidateName,
+      fileName: candidateRecommendations.fileName,
+      storageUrl: candidateRecommendations.storageUrl,
+      structured: candidateRecommendations.structuredResume,
+      topPositions: candidateRecommendations.topPositions,
+      createdAt: candidateRecommendations.createdAt
+    })
+    .from(candidateRecommendations)
+    .orderBy(desc(candidateRecommendations.createdAt))
+    .limit(20);
 
   return rows.map((row) => ({
-    id: String(row.id),
-    candidateName: String(row.candidate_name),
-    fileName: String(row.file_name),
-    storageUrl: String(row.storage_url),
-    structured: asJson<CandidateAnalysis["structured"]>(row.structured_resume),
-    topPositions: asJson<CandidateAnalysis["topPositions"]>(row.top_positions),
-    createdAt: new Date(String(row.created_at)).toISOString()
+    id: row.id,
+    candidateName: row.candidateName,
+    fileName: row.fileName,
+    storageUrl: row.storageUrl,
+    structured: row.structured as CandidateAnalysis["structured"],
+    topPositions: row.topPositions as CandidateAnalysis["topPositions"],
+    createdAt: row.createdAt.toISOString()
   })) as CandidateAnalysis[];
 }
 
 export async function listAuditEvents() {
-  const sql = getSql();
+  const db = getDb();
 
-  if (!sql) {
+  if (!db) {
     return memoryAuditEvents.slice(0, 20);
   }
 
-  const rows = await sql`
-    select id, actor, action, entity_id, details, created_at
-    from audit_events
-    order by created_at desc
-    limit 20
-  `;
+  const rows = await db
+    .select({
+      id: auditEvents.id,
+      actor: auditEvents.actor,
+      action: auditEvents.action,
+      entityId: auditEvents.entityId,
+      details: auditEvents.details,
+      createdAt: auditEvents.createdAt
+    })
+    .from(auditEvents)
+    .orderBy(desc(auditEvents.createdAt))
+    .limit(20);
 
   return rows.map((row) => ({
     id: String(row.id),
-    actor: String(row.actor),
-    action: String(row.action),
-    entityId: row.entity_id ? String(row.entity_id) : undefined,
-    details: asJson<Record<string, unknown>>(row.details ?? {}),
-    createdAt: new Date(String(row.created_at)).toISOString()
+    actor: row.actor,
+    action: row.action,
+    entityId: row.entityId ?? undefined,
+    details: row.details,
+    createdAt: row.createdAt.toISOString()
   })) satisfies AuditEvent[];
 }
 
 export async function listAnalyses() {
-  const sql = getSql();
-  if (!sql) {
+  const db = getDb();
+  if (!db) {
     return memoryStore.slice(0, 8);
   }
 
-  const rows = await sql`
-    select
-      id,
-      employee_name,
-      target_role_title,
-      score,
-      matched_skills,
-      missing_skills,
-      created_at
-    from analyses
-    order by created_at desc
-    limit 8
-  `;
+  const rows = await db
+    .select({
+      id: analyses.id,
+      employeeName: analyses.employeeName,
+      targetRole: analyses.targetRoleTitle,
+      score: analyses.score,
+      matchedSkills: analyses.matchedSkills,
+      missingSkills: analyses.missingSkills,
+      createdAt: analyses.createdAt
+    })
+    .from(analyses)
+    .orderBy(desc(analyses.createdAt))
+    .limit(8);
 
   return rows.map((row) => ({
-    id: String(row.id),
-    employeeName: String(row.employee_name),
-    targetRole: String(row.target_role_title),
-    score: Number(row.score),
-    matchedSkills: asJson<string[]>(row.matched_skills ?? []),
-    missingSkills: asJson<string[]>(row.missing_skills ?? []),
-    createdAt: new Date(String(row.created_at)).toISOString()
+    id: row.id,
+    employeeName: row.employeeName,
+    targetRole: row.targetRole,
+    score: row.score,
+    matchedSkills: row.matchedSkills,
+    missingSkills: row.missingSkills,
+    createdAt: row.createdAt.toISOString()
   })) satisfies AnalysisRecord[];
 }
