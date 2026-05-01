@@ -1,22 +1,32 @@
 "use client";
 
+import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
-import { demoUsers } from "@/lib/auth-model";
 
 export default function LoginPage() {
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   async function login(formData: FormData) {
+    setError("");
+    setIsSubmitting(true);
     const response = await fetch("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({
         email: String(formData.get("email") ?? ""),
-        role: String(formData.get("role") ?? "")
+        password: String(formData.get("password") ?? "")
       }),
       headers: { "Content-Type": "application/json" }
     });
 
     if (response.ok) {
       window.location.href = "/";
+      return;
     }
+
+    const payload = (await response.json()) as { error?: string };
+    setError(payload.error ?? "Sign in failed.");
+    setIsSubmitting(false);
   }
 
   return (
@@ -26,31 +36,20 @@ export default function LoginPage() {
           <ShieldCheck aria-hidden="true" />
           <span>SkillMatch AI</span>
         </div>
-        <h1>Amazon SSO access</h1>
-        <p>Demo single sign-on gate for internal users and role-based access control.</p>
+        <h1>Secure sign in</h1>
+        <p>Use the demo credentials configured for this environment.</p>
 
         <label>
-          Internal account
-          <select name="email" defaultValue={demoUsers[0].email}>
-            {demoUsers.map((user) => (
-              <option key={user.email} value={user.email}>
-                {user.name} - {user.email}
-              </option>
-            ))}
-          </select>
+          Email
+          <input name="email" type="email" autoComplete="email" placeholder="recruiter@skillmatch.demo" required />
         </label>
         <label>
-          Role claim
-          <select name="role" defaultValue={demoUsers[0].role}>
-            {demoUsers.map((user) => (
-              <option key={user.role} value={user.role}>
-                {user.role.replace("_", " ")}
-              </option>
-            ))}
-          </select>
+          Password
+          <input name="password" type="password" autoComplete="current-password" required />
         </label>
-        <button className="primary-action" type="submit">
-          Sign in with Amazon
+        {error ? <p className="error-message" role="alert">{error}</p> : null}
+        <button className="primary-action" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Signing in..." : "Sign in"}
         </button>
       </form>
     </main>
