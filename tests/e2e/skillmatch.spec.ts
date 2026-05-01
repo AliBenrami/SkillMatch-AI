@@ -26,7 +26,9 @@ test("requires SSO, uploads a PDF resume, and ranks positions", async ({ page })
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
 
-  await page.getByRole("button", { name: /sign in with amazon/i }).click();
+  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
+  await page.getByLabel("Password").fill("SkillMatchDemo!23");
+  await page.getByRole("button", { name: /^sign in$/i }).click();
   await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
 
   await page.getByLabel("Upload resume files").setInputFiles(resumePath);

@@ -1,30 +1,29 @@
 import { NextResponse } from "next/server";
 import { setSessionUser } from "@/lib/auth";
-import { demoUsers, type UserRole } from "@/lib/auth-model";
+import { verifyCredentials } from "@/lib/auth-model";
 import { appendAuditEvent } from "@/lib/db";
 
 export async function POST(request: Request) {
   const body = await request.json();
   const email = String(body.email ?? "");
-  const role = String(body.role ?? "employee") as UserRole;
-  const user = demoUsers.find((item) => item.email === email);
+  const password = String(body.password ?? "");
+  const user = await verifyCredentials(email, password);
 
-  if (!user || !email.endsWith("@amazon.com")) {
+  if (!user) {
     await appendAuditEvent({
       actor: email || "anonymous",
       action: "failed_login",
-      details: { reason: "invalid_internal_account" }
+      details: { reason: "invalid_credentials" }
     });
-    return NextResponse.json({ error: "Amazon internal account required." }, { status: 401 });
+    return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
   }
 
-  const sessionUser = { ...user, role };
-  await setSessionUser(sessionUser);
+  await setSessionUser(user);
   await appendAuditEvent({
-    actor: sessionUser.email,
+    actor: user.email,
     action: "login",
-    details: { role: sessionUser.role }
+    details: { role: user.role }
   });
 
-  return NextResponse.json({ user: sessionUser });
+  return NextResponse.json({ user });
 }
