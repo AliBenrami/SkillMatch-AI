@@ -9,6 +9,9 @@ export default defineConfig({
   },
   webServer: {
     command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
+    env: {
+      DATABASE_URL: ""
+    },
     url: "http://127.0.0.1:3000/login",
     reuseExistingServer: false,
     timeout: 30_000

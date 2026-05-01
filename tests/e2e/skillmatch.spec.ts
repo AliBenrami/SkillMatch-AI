@@ -27,6 +27,15 @@ test.beforeAll(() => {
   }
 });
 
+test("allows signed-out users to open signup", async ({ page }) => {
+  await page.context().clearCookies();
+  await page.goto("/signup");
+
+  await expect(page).toHaveURL(/\/signup$/);
+  await expect(page.getByRole("heading", { name: "Create account" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
+});
+
 test("requires SSO, uploads a PDF resume, and ranks positions", async ({ page }) => {
   await page.context().clearCookies();
   await page.goto("/");

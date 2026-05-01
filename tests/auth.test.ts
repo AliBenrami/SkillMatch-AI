@@ -11,9 +11,18 @@ const admin: SessionUser = {
 const originalAuthSecret = process.env.AUTH_SECRET;
 const originalNodeEnv = process.env.NODE_ENV;
 
+function setNodeEnv(value: typeof process.env.NODE_ENV) {
+  Object.defineProperty(process.env, "NODE_ENV", {
+    value,
+    configurable: true,
+    enumerable: true,
+    writable: true
+  });
+}
+
 beforeEach(() => {
   delete process.env.AUTH_SECRET;
-  process.env.NODE_ENV = "test";
+  setNodeEnv("test");
   vi.useRealTimers();
 });
 
@@ -24,7 +33,7 @@ afterEach(() => {
     process.env.AUTH_SECRET = originalAuthSecret;
   }
 
-  process.env.NODE_ENV = originalNodeEnv;
+  setNodeEnv(originalNodeEnv);
   delete process.env.AUTH_USERS_JSON;
   vi.useRealTimers();
 });
@@ -66,14 +75,14 @@ describe("auth and RBAC", () => {
   });
 
   it("requires AUTH_SECRET in production", () => {
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
     delete process.env.AUTH_SECRET;
 
     expect(() => createSessionToken(admin)).toThrow(/AUTH_SECRET must be set/);
   });
 
   it("rejects weak AUTH_SECRET values in production", () => {
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
     process.env.AUTH_SECRET = "short-secret";
 
     expect(() => createSessionToken(admin)).toThrow(/AUTH_SECRET must be a strong random value/);

@@ -1,3 +1,12 @@
+create table if not exists users (
+  id uuid primary key,
+  name text not null,
+  email text not null,
+  role text not null,
+  password_hash text not null,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists analyses (
   id uuid primary key,
   employee_name text not null,
@@ -37,3 +46,4 @@ create index if not exists analyses_target_role_idx on analyses (target_role_id)
 create index if not exists audit_events_created_at_idx on audit_events (created_at desc);
 create index if not exists candidate_recommendations_created_at_idx on candidate_recommendations (created_at desc);
 create index if not exists candidate_recommendations_best_score_idx on candidate_recommendations (best_score desc);
+create unique index if not exists users_email_idx on users (email);

@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const user = await verifyCredentials(email, password);
 
   if (!user) {
-    await appendAuditEvent({
+    await appendLoginAuditEvent({
       actor: email || "anonymous",
       action: "failed_login",
       details: { reason: "invalid_credentials" }
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   }
 
   await setSessionUser(user);
-  await appendAuditEvent({
+  await appendLoginAuditEvent({
     actor: user.email,
     action: "login",
     details: { role: user.role }
