@@ -10,6 +10,39 @@ export type RoleRequirement = {
   learning: Record<string, string>;
 };
 
+export type MatchingConfig = {
+  scoringWeights: {
+    required: number;
+    preferred: number;
+  };
+  skillAliases: Record<string, string[]>;
+};
+
+export const matchingConfig: MatchingConfig = {
+  scoringWeights: {
+    required: 2,
+    preferred: 1
+  },
+  skillAliases: {
+    "api design": ["api development", "apis", "rest design", "restful api design"],
+    aws: ["amazon web services"],
+    "ci cd": ["ci/cd", "ci-cd", "continuous integration", "continuous delivery", "continuous deployment"],
+    dashboarding: ["dashboards", "dashboard development", "bi dashboards"],
+    docker: ["dockerized", "containers", "containerization"],
+    excel: ["spreadsheets", "microsoft excel"],
+    git: ["github", "gitlab", "version control"],
+    javascript: ["js"],
+    kubernetes: ["k8s"],
+    node: ["node.js", "nodejs"],
+    postgresql: ["postgres", "postgres sql"],
+    "rest api": ["rest", "restful", "restful api", "rest apis", "rest services"],
+    security: ["cybersecurity", "appsec", "application security"],
+    sql: ["structured query language"],
+    testing: ["tests", "test automation", "unit testing", "vitest"],
+    typescript: ["ts"]
+  }
+};
+
 export const roles: RoleRequirement[] = [
   {
     id: "sde-i",

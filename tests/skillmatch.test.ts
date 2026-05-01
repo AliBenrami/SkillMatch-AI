@@ -25,7 +25,8 @@ describe("skill matching engine", () => {
     expect(result.score).toBeGreaterThanOrEqual(80);
     expect(result.matchedSkills).toContain("typescript");
     expect(result.missingSkills.map((item) => item.skill)).toContain("aws");
-    expect(result.explanation).toContain("required skills count twice");
+    expect(result.explanation).toContain("required skills count 2x");
+    expect(result.explanationDetails.earnedWeight).toBeGreaterThan(result.matchedSkills.length);
   });
 
   it("ranks good positions for each resume", () => {
@@ -35,6 +36,49 @@ describe("skill matching engine", () => {
 
     expect(recommendations[0].role.id).toBe("sde-ii");
     expect(recommendations[0].score).toBeGreaterThan(70);
+    expect(recommendations[0].explanationDetails.rankingFactors[0]).toContain("Rank 1");
+  });
+
+  it("matches configured skill aliases and equivalent spellings", () => {
+    const result = analyzeResume(
+      "Backend engineer shipping REST services with continuous integration, GitHub, and Amazon Web Services.",
+      "sde-ii"
+    );
+
+    expect(result.matchedSkills).toEqual(expect.arrayContaining(["rest api", "ci cd", "git", "aws"]));
+    expect(result.explanationDetails.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          skill: "rest api",
+          matchedText: "rest"
+        }),
+        expect.objectContaining({
+          skill: "ci cd",
+          matchedText: "continuous integration"
+        })
+      ])
+    );
+  });
+
+  it("captures evidence snippets for partial skill matches", () => {
+    const result = analyzeResume(
+      "Built executive dashboards in Tableau and maintained spreadsheets for weekly statistics reporting.",
+      "data-analyst"
+    );
+
+    expect(result.matchedSkills).toEqual(expect.arrayContaining(["dashboarding", "excel", "statistics", "tableau"]));
+    expect(result.explanationDetails.evidence.find((item) => item.skill === "dashboarding")?.snippet).toContain(
+      "dashboards"
+    );
+  });
+
+  it("returns a zero score and full gaps when no resume skills match", () => {
+    const result = analyzeResume("Opera performer with culinary training and event hosting experience.", "sde-i");
+
+    expect(result.score).toBe(0);
+    expect(result.matchedSkills).toEqual([]);
+    expect(result.explanationDetails.evidence).toEqual([]);
+    expect(result.missingSkills).toHaveLength(10);
   });
 
   it("extracts structured resume data and masks demographic signals", () => {

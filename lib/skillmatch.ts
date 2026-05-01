@@ -1,4 +1,32 @@
-import { roles, type RoleRequirement } from "./seed-data";
+import { matchingConfig, roles, type RoleRequirement } from "./seed-data";
+
+type SkillSource = "required" | "preferred";
+
+export type SkillMatchEvidence = {
+  skill: string;
+  matchedText: string;
+  snippet: string;
+  source: SkillSource;
+  weight: number;
+};
+
+export type SkillMatchExplanationDetails = {
+  weights: typeof matchingConfig.scoringWeights;
+  earnedWeight: number;
+  possibleWeight: number;
+  required: {
+    matched: number;
+    total: number;
+    missing: string[];
+  };
+  preferred: {
+    matched: number;
+    total: number;
+    missing: string[];
+  };
+  evidence: SkillMatchEvidence[];
+  rankingFactors: string[];
+};
 
 export type SkillMatchResult = {
   role: RoleRequirement;
@@ -12,6 +40,7 @@ export type SkillMatchResult = {
   }>;
   score: number;
   explanation: string;
+  explanationDetails: SkillMatchExplanationDetails;
 };
 
 export type StructuredResume = {
@@ -36,11 +65,18 @@ export type CandidateAnalysis = {
   createdAt: string;
 };
 
-const skillVocabulary = Array.from(
-  new Set(
-    roles.flatMap((role) => [...role.requiredSkills, ...role.preferredSkills])
-  )
-).sort((a, b) => b.length - a.length);
+const canonicalSkills = Array.from(
+  new Set(roles.flatMap((role) => [...role.requiredSkills, ...role.preferredSkills]))
+);
+
+const skillVocabulary = canonicalSkills.sort((a, b) => b.length - a.length);
+
+const skillTerms = new Map(
+  canonicalSkills.map((skill) => [
+    skill,
+    Array.from(new Set([skill, ...(matchingConfig.skillAliases[skill] ?? [])]))
+  ])
+);
 
 const certificationPatterns = [
   /aws certified[^,\n.]*/gi,
@@ -59,6 +95,31 @@ export function normalizeResumeText(text: string) {
     .trim();
 }
 
+function termMatchesNormalized(normalizedText: string, term: string) {
+  const normalizedTerm = normalizeResumeText(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const flexibleTerm = normalizedTerm.replace(/\\\-/g, "[-\\s]+").replace(/\s+/g, "[-\\s]+");
+  return new RegExp(`(^|\\s)${flexibleTerm}s?(\\s|$)`, "i").test(normalizedText);
+}
+
+function findMatchedTerm(normalizedText: string, skill: string) {
+  return skillTerms.get(skill)?.find((term) => termMatchesNormalized(normalizedText, term)) ?? null;
+}
+
+function findEvidenceSnippet(resumeText: string, terms: string[]) {
+  const segments =
+    resumeText
+      .split(/(?<=[.!?])\s+|\r?\n/)
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+
+  const matchedSegment = segments.find((segment) => {
+    const normalizedSegment = normalizeResumeText(segment);
+    return terms.some((term) => termMatchesNormalized(normalizedSegment, term));
+  });
+
+  return (matchedSegment ?? resumeText.trim()).slice(0, 180);
+}
+
 export function maskDemographicSignals(text: string) {
   return text
     .replace(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\s*$/gm, "[name masked]")
@@ -69,10 +130,7 @@ export function maskDemographicSignals(text: string) {
 
 export function extractSkills(resumeText: string) {
   const normalized = normalizeResumeText(resumeText);
-  return skillVocabulary.filter((skill) => {
-    const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`(^|\\s)${escaped}(\\s|$)`, "i").test(normalized);
-  });
+  return skillVocabulary.filter((skill) => Boolean(findMatchedTerm(normalized, skill)));
 }
 
 export function extractStructuredResume(resumeText: string): StructuredResume {
@@ -112,13 +170,30 @@ export function analyzeResume(resumeText: string, roleId: string): SkillMatchRes
   const matchedSkills = allRoleSkills.filter((skill) => extracted.has(skill));
   const missingRequired = role.requiredSkills.filter((skill) => !extracted.has(skill));
   const missingPreferred = role.preferredSkills.filter((skill) => !extracted.has(skill));
+  const { required: requiredSkillWeight, preferred: preferredSkillWeight } = matchingConfig.scoringWeights;
 
-  const requiredWeight = role.requiredSkills.length * 2;
-  const preferredWeight = role.preferredSkills.length;
+  const requiredWeight = role.requiredSkills.length * requiredSkillWeight;
+  const preferredWeight = role.preferredSkills.length * preferredSkillWeight;
   const earned =
-    role.requiredSkills.filter((skill) => extracted.has(skill)).length * 2 +
-    role.preferredSkills.filter((skill) => extracted.has(skill)).length;
-  const score = Math.round((earned / (requiredWeight + preferredWeight)) * 100);
+    role.requiredSkills.filter((skill) => extracted.has(skill)).length * requiredSkillWeight +
+    role.preferredSkills.filter((skill) => extracted.has(skill)).length * preferredSkillWeight;
+  const possibleWeight = requiredWeight + preferredWeight;
+  const score = possibleWeight > 0 ? Math.round((earned / possibleWeight) * 100) : 0;
+
+  const normalizedResume = normalizeResumeText(resumeText);
+  const evidence = allRoleSkills
+    .filter((skill) => extracted.has(skill))
+    .map((skill) => {
+      const source: SkillSource = role.requiredSkills.includes(skill) ? "required" : "preferred";
+      const terms = skillTerms.get(skill) ?? [skill];
+      return {
+        skill,
+        matchedText: findMatchedTerm(normalizedResume, skill) ?? skill,
+        snippet: findEvidenceSnippet(resumeText, terms),
+        source,
+        weight: source === "required" ? requiredSkillWeight : preferredSkillWeight
+      };
+    });
 
   const missingSkills = [
     ...missingRequired.map((skill) => ({
@@ -133,6 +208,28 @@ export function analyzeResume(resumeText: string, roleId: string): SkillMatchRes
     }))
   ];
 
+  const explanationDetails: SkillMatchExplanationDetails = {
+    weights: matchingConfig.scoringWeights,
+    earnedWeight: earned,
+    possibleWeight,
+    required: {
+      matched: role.requiredSkills.length - missingRequired.length,
+      total: role.requiredSkills.length,
+      missing: missingRequired
+    },
+    preferred: {
+      matched: role.preferredSkills.length - missingPreferred.length,
+      total: role.preferredSkills.length,
+      missing: missingPreferred
+    },
+    evidence,
+    rankingFactors: [
+      `${role.requiredSkills.length - missingRequired.length}/${role.requiredSkills.length} required skills matched`,
+      `${role.preferredSkills.length - missingPreferred.length}/${role.preferredSkills.length} preferred skills matched`,
+      `${earned}/${possibleWeight} weighted points earned`
+    ]
+  };
+
   return {
     role,
     extractedSkills,
@@ -140,7 +237,8 @@ export function analyzeResume(resumeText: string, roleId: string): SkillMatchRes
     matchedSkills,
     missingSkills,
     score,
-    explanation: `Score is based on weighted overlap with ${role.title}: required skills count twice, preferred skills count once. ${matchedSkills.length} role skills matched and ${missingSkills.length} gaps remain. Demographic contact signals are masked before recommendation review.`
+    explanation: `Score is based on configurable weighted overlap with ${role.title}: required skills count ${requiredSkillWeight}x, preferred skills count ${preferredSkillWeight}x. ${explanationDetails.required.matched} of ${role.requiredSkills.length} required skills and ${explanationDetails.preferred.matched} of ${role.preferredSkills.length} preferred skills matched (${earned}/${possibleWeight} weighted points). Evidence snippets are captured for matched skills, and demographic contact signals are masked before recommendation review.`,
+    explanationDetails
   };
 }
 
@@ -167,7 +265,14 @@ export function rankResumeForPositions(resumeText: string) {
     .sort((a, b) => b.score - a.score)
     .map((result, index) => ({
       ...result,
-      rank: index + 1
+      rank: index + 1,
+      explanationDetails: {
+        ...result.explanationDetails,
+        rankingFactors: [
+          `Rank ${index + 1} of ${roles.length} by weighted skill score`,
+          ...result.explanationDetails.rankingFactors
+        ]
+      }
     })) satisfies CandidatePositionRecommendation[];
 }
 
