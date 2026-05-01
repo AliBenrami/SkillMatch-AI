@@ -17,8 +17,10 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   UploadCloud,
   Users,
+  X,
   type LucideIcon
 } from "lucide-react";
 import { roles } from "@/lib/seed-data";
@@ -41,6 +43,10 @@ const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "audit", label: "Audit Log", icon: ShieldCheck },
   { id: "settings", label: "Settings", icon: Settings }
 ];
+
+function fileKey(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
 
 export default function Dashboard({ user }: { user: SessionUser }) {
   const [view, setView] = useState<View>("dashboard");
@@ -111,10 +117,35 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       return;
     }
     const nextFiles = Array.from(fileList).filter((file) => /\.(pdf|docx|txt)$/i.test(file.name));
-    setFiles((current) => [...current, ...nextFiles].slice(0, 12));
+    setFiles((current) => {
+      const queued = new Set(current.map(fileKey));
+      const uniqueFiles = nextFiles.filter((file) => {
+        const key = fileKey(file);
+        if (queued.has(key)) {
+          return false;
+        }
+        queued.add(key);
+        return true;
+      });
+      return [...current, ...uniqueFiles].slice(0, 12);
+    });
+  }
+
+  function removeFile(fileToRemove: File) {
+    const removeKey = fileKey(fileToRemove);
+    setFiles((current) => current.filter((file) => fileKey(file) !== removeKey));
+  }
+
+  function clearFiles() {
+    setFiles([]);
   }
 
   async function uploadResumes() {
+    if (!files.length) {
+      setNotice("Select at least one resume before running analysis.");
+      return;
+    }
+
     setIsUploading(true);
     setNotice("");
     setFailures([]);
@@ -138,7 +169,12 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     setCandidates((current) => [...uploadPayload.candidates, ...current]);
     setSelectedCandidateId(uploadPayload.candidates[0]?.id ?? selectedCandidateId);
     setFailures(uploadPayload.failures);
-    setNotice(`Processed ${uploadPayload.candidates.length} resume${uploadPayload.candidates.length === 1 ? "" : "s"}.`);
+    setFiles([]);
+    setNotice(
+      uploadPayload.candidates.length
+        ? `Processed ${uploadPayload.candidates.length} resume${uploadPayload.candidates.length === 1 ? "" : "s"}.`
+        : "No resumes were processed."
+    );
     setIsUploading(false);
     void refreshRecords();
   }
@@ -220,15 +256,35 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                     type="file"
                     multiple
                     accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                    onChange={(event) => addFiles(event.target.files)}
+                    onChange={(event) => {
+                      addFiles(event.target.files);
+                      event.currentTarget.value = "";
+                    }}
                   />
+                </div>
+                <div className="queue-header">
+                  <span>{files.length ? `${files.length} selected` : "No resumes selected"}</span>
+                  <button className="queue-clear-button" type="button" onClick={clearFiles} disabled={!files.length || isUploading}>
+                    <Trash2 aria-hidden="true" />
+                    Clear all
+                  </button>
                 </div>
                 <ul className="file-list">
                   {files.map((file) => (
-                    <li key={`${file.name}-${file.size}`}>
+                    <li key={fileKey(file)}>
                       <CheckCircle2 aria-hidden="true" />
                       <span>{file.name}</span>
                       <small>{Math.round(file.size / 1024)} KB</small>
+                      <button
+                        className="queue-icon-button"
+                        type="button"
+                        onClick={() => removeFile(file)}
+                        disabled={isUploading}
+                        aria-label={`Remove ${file.name}`}
+                        title={`Remove ${file.name}`}
+                      >
+                        <X aria-hidden="true" />
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -244,7 +300,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                     {failure.fileName}: {failure.error}
                   </p>
                 ))}
-                <button className="run-button" onClick={uploadResumes} disabled={isUploading}>
+                <button className="run-button" onClick={uploadResumes} disabled={isUploading || !files.length}>
                   <SlidersHorizontal aria-hidden="true" />
                   {isUploading ? "Processing resumes..." : "Run SkillMatch Analysis"}
                 </button>

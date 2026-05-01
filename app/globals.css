@@ -279,20 +279,83 @@ input {
 .file-list {
   display: grid;
   gap: 8px;
-  margin: 14px 0;
+  margin: 8px 0 14px;
+}
+
+.queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.queue-clear-button,
+.queue-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: white;
+  color: #4f5a52;
+}
+
+.queue-clear-button {
+  gap: 6px;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.queue-clear-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.queue-icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.queue-icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.queue-clear-button:disabled,
+.queue-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .file-list li {
   display: grid;
-  grid-template-columns: 18px 1fr auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto 28px;
   align-items: center;
   gap: 8px;
   color: #414c43;
   font-size: 13px;
 }
 
+.file-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .file-list svg {
   color: var(--green);
+}
+
+.file-list .queue-icon-button svg {
+  color: currentColor;
 }
 
 .file-list small,
@@ -328,7 +391,7 @@ input {
 
 .run-button:disabled,
 .primary-action:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.65;
 }
 
