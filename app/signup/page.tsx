@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { UserPlus } from "lucide-react";
+import { AmazonLogo } from "../components/amazon-brand";
 
 export default function SignupPage() {
   const [error, setError] = useState("");
@@ -35,10 +35,9 @@ export default function SignupPage() {
     <main className="login-shell">
       <form action={signup} className="login-card">
         <div className="brand login-brand">
-          <UserPlus aria-hidden="true" />
-          <span>SkillMatch AI</span>
+          <AmazonLogo />
         </div>
-        <h1>Create account</h1>
+        <h1>Create Talent Match account</h1>
         <p>Sign up with a database-backed account for this environment.</p>
 
         <label>

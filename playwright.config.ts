@@ -6,6 +6,8 @@ const edgeChannel =
   process.env.PLAYWRIGHT_EDGE_CHANNEL ??
   (process.platform === "win32" ? "msedge" : undefined);
 
+type Project = NonNullable<PlaywrightTestConfig["projects"]>[number];
+
 const defaultProjects: Project[] = [
   {
     name: "chromium",

@@ -4,5 +4,6 @@ coverage
 .env
 .env.local
 npm-debug.log*
+*.tsbuildinfo
 .vercel
 .DS_Store

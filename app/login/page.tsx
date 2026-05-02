@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { AmazonLogo } from "../components/amazon-brand";
 
 export default function LoginPage() {
   const [error, setError] = useState("");
@@ -33,11 +33,10 @@ export default function LoginPage() {
     <main className="login-shell">
       <form action={login} className="login-card">
         <div className="brand login-brand">
-          <ShieldCheck aria-hidden="true" />
-          <span>SkillMatch AI</span>
+          <AmazonLogo />
         </div>
-        <h1>Secure sign in</h1>
-        <p>Sign in with the demo email and password configured for this environment.</p>
+        <h1>Talent Match sign in</h1>
+        <p>Use the internal demo credentials configured for this environment.</p>
 
         <label>
           Email

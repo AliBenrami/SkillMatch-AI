@@ -1,4 +1,5 @@
 import { matchingConfig, roles, type RoleRequirement } from "./seed-data";
+import { isKnownRoleId } from "./validation";
 
 type SkillSource = "required" | "preferred";
 
@@ -162,7 +163,8 @@ export function extractStructuredResume(resumeText: string): StructuredResume {
 }
 
 export function analyzeResume(resumeText: string, roleId: string): SkillMatchResult {
-  const role = roles.find((item) => item.id === roleId) ?? roles[0];
+  const safeRoleId = isKnownRoleId(roleId) ? roleId : roles[0].id;
+  const role = roles.find((item) => item.id === safeRoleId) ?? roles[0];
   const structured = extractStructuredResume(resumeText);
   const extractedSkills = structured.skills;
   const extracted = new Set(extractedSkills);

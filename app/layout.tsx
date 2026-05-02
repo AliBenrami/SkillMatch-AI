@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SkillMatch AI",
-  description: "Internal resume skill matching MVP"
+  title: "Amazon Talent Match Console",
+  description: "Internal talent matching and role readiness console"
 };
 
 export default function RootLayout({

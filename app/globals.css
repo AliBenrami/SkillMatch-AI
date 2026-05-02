@@ -57,12 +57,44 @@ button {
   background: #ffffff;
 }
 
-.amazon-mark {
-  margin-bottom: 10px;
-  color: #151a21;
-  font-size: 34px;
+.amazon-logo {
+  position: relative;
+  display: inline-grid;
+  width: max-content;
+  padding-bottom: 9px;
+  color: #111820;
+  font-size: 27px;
   font-weight: 900;
+  letter-spacing: 0;
   line-height: 1;
+}
+
+.amazon-logo i {
+  position: absolute;
+  left: 20px;
+  right: 8px;
+  bottom: 0;
+  height: 7px;
+  border-bottom: 3px solid var(--amazon);
+  border-radius: 0 0 70% 70%;
+  transform: rotate(-7deg);
+}
+
+.amazon-logo i::after {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-right: 3px solid var(--amazon);
+  border-bottom: 3px solid var(--amazon);
+  content: "";
+  transform: rotate(-25deg);
+}
+
+.amazon-logo.compact {
+  margin-bottom: 10px;
+  font-size: 18px;
 }
 
 .nav-item {
@@ -107,12 +139,17 @@ button {
 .brand-block {
   display: flex;
   align-items: center;
-  gap: 36px;
+  gap: 32px;
+}
+
+.brand-block > div {
+  display: grid;
+  gap: 2px;
 }
 
 .brand-block h1 {
   margin: 0;
-  font-size: 27px;
+  font-size: 20px;
   letter-spacing: 0;
 }
 

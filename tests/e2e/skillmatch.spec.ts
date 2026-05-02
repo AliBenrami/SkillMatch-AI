@@ -42,14 +42,21 @@ test("allows signed-out users to open signup", async ({ page }) => {
   await page.goto("/signup");
 
   await expect(page).toHaveURL(/\/signup$/);
-  await expect(page.getByRole("heading", { name: "Create account" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create Talent Match account" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
 });
 
 test("requires credential sign-in, uploads a PDF resume, and ranks positions", async ({ page }) => {
-  const uploadInput = page.locator('input[type="file"]').first();
+  const uploadInput = page.getByLabel("Upload resume files");
 
   await page.context().clearCookies();
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
+  await page.getByLabel("Password").fill("SkillMatchDemo!23");
+  await page.getByRole("button", { name: /^sign in$/i }).click();
+  await expect(page.getByRole("heading", { name: "Talent Match Console" })).toBeVisible();
   await signInAsDemoRecruiter(page);
 
   await uploadInput.setInputFiles(resumePath);
@@ -74,9 +81,16 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
 });
 
 test("keeps failed upload state visible after processing", async ({ page }) => {
-  const uploadInput = page.locator('input[type="file"]').first();
+  const uploadInput = page.getByLabel("Upload resume files");
 
   await page.context().clearCookies();
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
+  await page.getByLabel("Password").fill("SkillMatchDemo!23");
+  await page.getByRole("button", { name: /^sign in$/i }).click();
+  await expect(page.getByRole("heading", { name: "Talent Match Console" })).toBeVisible();
   await signInAsDemoRecruiter(page);
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeDisabled();
 

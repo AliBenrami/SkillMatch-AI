@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Activity,
@@ -12,7 +12,6 @@ import {
   FileText,
   GraduationCap,
   LayoutDashboard,
-  LogOut,
   Search,
   Settings,
   ShieldCheck,
@@ -23,6 +22,7 @@ import {
   X,
   type LucideIcon
 } from "lucide-react";
+import { AppHeader, NavigationRail } from "./components/amazon-brand";
 import { roles } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
 import type { AnalysisRecord, AuditEvent } from "@/lib/db";
@@ -112,15 +112,12 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       .includes(query.toLowerCase())
   );
 
-  useEffect(() => {
-    void refreshRecords();
-  }, []);
-
-  async function refreshRecords() {
+  const refreshRecords = useCallback(async () => {
+    const auditRequest = user.role === "system_admin" ? fetch("/api/audit") : Promise.resolve(null);
     const [candidateResponse, analysisResponse, auditResponse] = await Promise.all([
       fetch("/api/candidates"),
       fetch("/api/analyses"),
-      fetch("/api/audit")
+      auditRequest
     ]);
 
     if (candidateResponse.ok) {
@@ -134,11 +131,16 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       setAnalyses(payload.analyses);
     }
 
-    if (auditResponse.ok) {
+    if (auditResponse?.ok) {
       const payload = (await auditResponse.json()) as { events: AuditEvent[] };
       setAuditEvents(payload.events);
     }
-  }
+  }, [user.role]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void refreshRecords(), 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshRecords]);
 
   function addFiles(fileList: FileList | null) {
     if (!fileList) {
@@ -217,51 +219,21 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
   return (
     <main className="product-shell">
-      <aside className="side-nav" aria-label="Primary">
-        <div className="amazon-mark">sm</div>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              className={`nav-item ${view === item.id ? "active" : ""}`}
-              key={item.id}
-              onClick={() => setView(item.id)}
-              title={item.label}
-            >
-              <Icon aria-hidden="true" />
-              {item.label}
-            </button>
-          );
-        })}
-      </aside>
+      <NavigationRail currentView={view} items={navItems} onSelect={setView} />
 
       <section className="main-product">
-        <header className="app-header">
-          <div className="brand-block">
-            <h1>SkillMatch AI</h1>
-            <label className="role-context">
-              Role Context
-              <select value={roleId} onChange={(event) => setRoleId(event.target.value)}>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="audit-status">
-            <CheckCircle2 aria-hidden="true" />
-            <div>
-              <strong>Session Protected</strong>
-              <span>{user.name} ({user.role.replace("_", " ")})</span>
-            </div>
-          </div>
-          <button className="icon-text-button" onClick={logout}>
-            <LogOut aria-hidden="true" />
-            Sign out
-          </button>
-        </header>
+        <AppHeader user={user} onLogout={logout}>
+          <label className="role-context">
+            Role Context
+            <select value={roleId} onChange={(event) => setRoleId(event.target.value)}>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        </AppHeader>
 
         {view === "dashboard" ? (
           <>
