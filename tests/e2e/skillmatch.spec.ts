@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
@@ -27,6 +27,16 @@ test.beforeAll(() => {
   }
 });
 
+async function signInAsDemoRecruiter(page: Page) {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
+  await page.getByLabel("Password").fill("SkillMatchDemo!23");
+  await page.getByRole("button", { name: /^sign in$/i }).click();
+  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
+}
+
 test("allows signed-out users to open signup", async ({ page }) => {
   await page.context().clearCookies();
   await page.goto("/signup");
@@ -38,13 +48,7 @@ test("allows signed-out users to open signup", async ({ page }) => {
 
 test("requires SSO, uploads a PDF resume, and ranks positions", async ({ page }) => {
   await page.context().clearCookies();
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
-
-  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
-  await page.getByLabel("Password").fill("SkillMatchDemo!23");
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
+  await signInAsDemoRecruiter(page);
 
   await page.getByLabel("Upload resume files").setInputFiles(resumePath);
   await page.getByLabel("Upload resume files").setInputFiles(resumePath);
@@ -67,13 +71,7 @@ test("requires SSO, uploads a PDF resume, and ranks positions", async ({ page })
 
 test("keeps failed upload state visible after processing", async ({ page }) => {
   await page.context().clearCookies();
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
-
-  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
-  await page.getByLabel("Password").fill("SkillMatchDemo!23");
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
+  await signInAsDemoRecruiter(page);
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeDisabled();
 
   await page.getByLabel("Upload resume files").setInputFiles(shortResumePath);
