@@ -4,9 +4,9 @@ import type { SessionUser } from "@/lib/auth-model";
 
 export function AmazonLogo({ compact = false }: { compact?: boolean }) {
   return (
-    <div className={compact ? "amazon-logo compact" : "amazon-logo"} aria-label="Amazon">
-      <span>amazon</span>
-      <i aria-hidden="true" />
+    <div className={compact ? "amazon-logo compact" : "amazon-logo"} aria-label="SkillMatch AI">
+      <span>AI</span>
+      {!compact && "SkillMatch"}
     </div>
   );
 }
@@ -14,11 +14,13 @@ export function AmazonLogo({ compact = false }: { compact?: boolean }) {
 export function NavigationRail<TView extends string>({
   currentView,
   items,
-  onSelect
+  onSelect,
+  onLogout
 }: {
   currentView: TView;
   items: Array<{ id: TView; label: string; icon: LucideIcon }>;
   onSelect: (view: TView) => void;
+  onLogout?: () => void;
 }) {
   return (
     <aside className="side-nav" aria-label="Primary">
@@ -37,39 +39,41 @@ export function NavigationRail<TView extends string>({
           </button>
         );
       })}
+      {onLogout ? (
+        <div className="nav-logout">
+          <button className="nav-item" onClick={onLogout} title="Sign out">
+            <LogOut aria-hidden="true" />
+            Sign out
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }
 
 export function AppHeader({
   children,
-  user,
-  onLogout
+  user
 }: {
   children: ReactNode;
   user: SessionUser;
-  onLogout: () => void;
 }) {
   return (
     <header className="app-header">
       <div className="brand-block">
         <div>
           <AmazonLogo />
-          <h1>Talent Match Console</h1>
+          <h1>SkillMatch AI</h1>
         </div>
         {children}
       </div>
       <div className="audit-status">
         <CheckCircle2 aria-hidden="true" />
         <div>
-          <strong>Session Protected</strong>
-          <span>{user.name} ({user.role.replace("_", " ")})</span>
+          <strong>Session protected</strong>
+          <span>{user.name} &middot; {user.role.replace(/_/g, " ")}</span>
         </div>
       </div>
-      <button className="icon-text-button" onClick={onLogout}>
-        <LogOut aria-hidden="true" />
-        Sign out
-      </button>
     </header>
   );
 }

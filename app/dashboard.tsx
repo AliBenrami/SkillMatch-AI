@@ -219,10 +219,10 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
   return (
     <main className="product-shell">
-      <NavigationRail currentView={view} items={navItems} onSelect={setView} />
+      <NavigationRail currentView={view} items={navItems} onSelect={setView} onLogout={logout} />
 
       <section className="main-product">
-        <AppHeader user={user} onLogout={logout}>
+        <AppHeader user={user}>
           <label className="role-context">
             Role Context
             <select value={roleId} onChange={(event) => setRoleId(event.target.value)}>
@@ -356,10 +356,10 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 <article className="candidate-card" key={candidate.id}>
                   <div className="panel-heading">
                     <h2>{candidate.candidateName}</h2>
-                    <span>{candidate.topPositions[0]?.score ?? 0}%</span>
+                    <em className="status-chip">{candidate.topPositions[0]?.score ?? 0}%</em>
                   </div>
                   <p>{candidate.fileName}</p>
-                  <strong>{candidate.topPositions[0]?.role.title ?? "No recommendation"}</strong>
+                  <strong style={{ fontSize: "13px" }}>{candidate.topPositions[0]?.role.title ?? "No recommendation"}</strong>
                   <small>{candidate.topPositions[0]?.explanation}</small>
                 </article>
               ))}
