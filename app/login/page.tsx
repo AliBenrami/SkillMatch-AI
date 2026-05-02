@@ -37,7 +37,7 @@ export default function LoginPage() {
           <span>SkillMatch AI</span>
         </div>
         <h1>Secure sign in</h1>
-        <p>Use the demo credentials configured for this environment.</p>
+        <p>Sign in with the demo email and password configured for this environment.</p>
 
         <label>
           Email

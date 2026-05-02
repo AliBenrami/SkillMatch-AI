@@ -36,7 +36,7 @@ test("allows signed-out users to open signup", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
 });
 
-test("requires SSO, uploads a PDF resume, and ranks positions", async ({ page }) => {
+test("requires credential sign-in, uploads a PDF resume, and ranks positions", async ({ page }) => {
   const uploadInput = page.locator('input[type="file"]').first();
 
   await page.context().clearCookies();
