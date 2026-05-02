@@ -4,9 +4,9 @@ import type { SessionUser } from "@/lib/auth-model";
 
 export function AmazonLogo({ compact = false }: { compact?: boolean }) {
   return (
-    <div className={compact ? "amazon-logo compact" : "amazon-logo"} aria-label="SkillMatch AI">
-      <span>AI</span>
-      {!compact && "SkillMatch"}
+    <div className={compact ? "amazon-logo compact" : "amazon-logo"} aria-label="Amazon">
+      <span>amazon</span>
+      <i aria-hidden="true" />
     </div>
   );
 }
@@ -63,7 +63,7 @@ export function AppHeader({
       <div className="brand-block">
         <div>
           <AmazonLogo />
-          <h1>SkillMatch AI</h1>
+          <h1>Talent Match Console</h1>
         </div>
         {children}
       </div>

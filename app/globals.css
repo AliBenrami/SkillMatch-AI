@@ -126,38 +126,63 @@ button {
 }
 
 .amazon-logo {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 4px 6px 16px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: -0.4px;
+  position: relative;
+  display: inline-grid;
+  width: max-content;
+  padding-bottom: 9px;
   color: var(--ink);
-  white-space: nowrap;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  line-height: 1;
 }
 
 .amazon-logo span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--brand);
-  color: #1c1917;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: -0.3px;
-  flex-shrink: 0;
+  display: inline-block;
+}
+
+.amazon-logo i {
+  position: absolute;
+  left: 18px;
+  right: 6px;
+  bottom: 0;
+  height: 7px;
+  border-bottom: 3px solid var(--brand);
+  border-radius: 0 0 70% 70%;
+  transform: rotate(-7deg);
+}
+
+.amazon-logo i::after {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-right: 3px solid var(--brand);
+  border-bottom: 3px solid var(--brand);
+  content: "";
+  transform: rotate(-25deg);
 }
 
 .amazon-logo.compact {
-  padding: 0;
-  border-bottom: 0;
-  margin-bottom: 16px;
+  margin: 4px 4px 16px;
+  padding-bottom: 7px;
+  font-size: 17px;
+  letter-spacing: -0.3px;
+}
+
+.amazon-logo.compact i {
+  left: 12px;
+  right: 4px;
+  height: 5px;
+  border-bottom-width: 2px;
+}
+
+.amazon-logo.compact i::after {
+  width: 5px;
+  height: 5px;
+  border-right-width: 2px;
+  border-bottom-width: 2px;
 }
 
 .nav-item {
@@ -226,19 +251,20 @@ button {
 .brand-block {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 28px;
 }
 
 .brand-block > div {
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
 .brand-block h1 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--muted);
 }
 
 .role-context,
@@ -658,11 +684,11 @@ input:focus {
 .score-column {
   display: grid;
   place-items: center;
-  align-content: center;
+  align-content: start;
   gap: 10px;
+  padding: 18px 14px 12px 0;
   border-right: 1px solid var(--border);
   text-align: center;
-  padding-right: 4px;
 }
 
 .score-column > span {
@@ -670,6 +696,12 @@ input:focus {
   color: var(--muted);
   font-size: 12.5px;
   line-height: 1.4;
+}
+
+.score-column > strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
 }
 
 .score-ring {
@@ -684,16 +716,30 @@ input:focus {
 }
 
 .score-ring.large {
-  width: 138px;
-  height: 138px;
+  width: 130px;
+  height: 130px;
 }
 
 .score-ring strong {
-  font-size: 38px;
+  font-size: 32px;
   font-weight: 800;
-  letter-spacing: -2px;
+  letter-spacing: -1.5px;
   line-height: 1;
   color: var(--ink);
+}
+
+.score-column.is-empty .score-ring {
+  background:
+    radial-gradient(circle at center, white 0 57%, transparent 58%),
+    conic-gradient(var(--border) 100%, var(--border) 0);
+  box-shadow: none;
+}
+
+.score-column.is-empty .score-ring strong {
+  color: var(--subtle);
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: 0;
 }
 
 .skill-columns {
@@ -760,6 +806,18 @@ input:focus {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+}
+
+.list-placeholder {
+  margin: 12px 0 0;
+  padding: 14px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
 }
 
 /* ─── Skill gap chart ────────────────────────────────────────── */
@@ -1406,12 +1464,11 @@ meter::-moz-meter-bar {
     gap: 4px;
   }
 
-  .amazon-mark {
-    padding: 0 12px 0 4px;
-    border-bottom: 0;
+  .amazon-logo.compact {
+    margin: 0 8px 0 4px;
+    padding: 0 12px 7px 0;
     border-right: 1px solid var(--border);
-    margin-bottom: 0;
-    margin-right: 4px;
+    flex-shrink: 0;
   }
 
   .nav-logout {
