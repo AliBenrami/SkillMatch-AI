@@ -39,7 +39,7 @@ function getProjects(): Project[] {
   const availableProjects = [...defaultProjects, ...crossBrowserProjects];
 
   if (requestedProjects.length > 0) {
-    return availableProjects.filter((project) => requestedProjects.includes(project.name));
+    return availableProjects.filter((project) => Boolean(project.name && requestedProjects.includes(project.name)));
   }
 
   if (process.env.PLAYWRIGHT_CROSS_BROWSER === "1") {
