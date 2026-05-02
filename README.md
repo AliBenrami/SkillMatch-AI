@@ -100,8 +100,11 @@ The GitHub Actions workflow in `.github/workflows/ci.yml` runs on pull requests 
 
 ## Documentation Maintenance
 
-Documentation updates belong in the same change as the code update.
+Project documentation now lives in the repo under `docs/` so process notes can evolve with the codebase:
 
-- Use `docs/documentation-process.md` when a change affects setup, architecture, behavior, operational expectations, or developer workflows.
-- Add a short dated entry to `docs/implementation-change-log.md` whenever repo-facing implementation details change.
-- The PR checklist in `.github/PULL_REQUEST_TEMPLATE.md` is the review backstop for this process.
+- `docs/README.md` explains the lightweight documentation workflow and when updates are expected.
+- `docs/changelog.md` records architecture, requirements, testing, and deployment-facing changes over time.
+- `docs/source/` is for editable source artifacts such as `.docx`, slide decks, and working notes when they should be versioned with the repo.
+- `docs/generated/` is for exported artifacts such as PDFs or presentation renders when they are needed for review or submission.
+
+When a pull request changes user-facing behavior, architecture, environment requirements, testing strategy, or deployment steps, update the relevant docs in the same branch and note the change in `docs/changelog.md`.
