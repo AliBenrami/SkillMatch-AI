@@ -65,6 +65,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? candidates[0];
   const selectedRoleMatch = selectedCandidate?.topPositions.find((item) => item.role.id === roleId);
   const bestRecommendation = selectedRoleMatch ?? selectedCandidate?.topPositions[0];
+  const selectedResult = selectedRoleMatch ?? bestRecommendation;
 
   const workforceGaps = useMemo(() => {
     const counts = new Map<string, number>();
@@ -77,6 +78,25 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8);
   }, [candidates]);
+
+  const skillGapChartItems = useMemo(() => {
+    const matchedSkills = new Set(selectedResult?.matchedSkills ?? []);
+    const missingSkills = new Map((selectedResult?.missingSkills ?? []).map((gap) => [gap.skill, gap]));
+
+    return [...selectedRole.requiredSkills, ...selectedRole.preferredSkills].map((skill) => {
+      const source = selectedRole.requiredSkills.includes(skill) ? "required" : "preferred";
+      const isMatched = matchedSkills.has(skill);
+      const missingGap = missingSkills.get(skill);
+
+      return {
+        skill,
+        source,
+        status: isMatched ? "matched" : "gap",
+        importance: missingGap?.importance ?? (source === "required" ? "critical" : "important"),
+        coverage: isMatched ? 100 : source === "required" ? 32 : 56
+      };
+    });
+  }, [selectedRole, selectedResult]);
 
   const filteredCandidates = candidates.filter((candidate) =>
     `${candidate.candidateName} ${candidate.fileName} ${candidate.topPositions[0]?.role.title ?? ""}`
@@ -184,8 +204,8 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     window.location.href = "/login";
   }
 
-  const matchedSkills = bestRecommendation?.matchedSkills ?? [];
-  const missingSkills = bestRecommendation?.missingSkills ?? [];
+  const matchedSkills = selectedResult?.matchedSkills ?? [];
+  const missingSkills = selectedResult?.missingSkills ?? [];
 
   return (
     <main className="product-shell">
@@ -313,15 +333,22 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 </div>
                 <div className="overview-content">
                   <div className="score-column">
-                    <div className="score-ring large" style={{ "--score": `${bestRecommendation?.score ?? 0}%` } as CSSProperties}>
-                      <strong>{bestRecommendation?.score ?? 0}%</strong>
+                    <div className="score-ring large" style={{ "--score": `${selectedResult?.score ?? 0}%` } as CSSProperties}>
+                      <strong>{selectedResult?.score ?? 0}%</strong>
                     </div>
                     <strong>Overall Match</strong>
-                    <span>{bestRecommendation ? bestRecommendation.role.title : "Upload resumes to rank positions"}</span>
+                    <span>{selectedResult ? selectedRole.title : "Upload resumes to rank positions"}</span>
                   </div>
-                  <div className="skill-columns">
-                    <SkillList title="Top Matched Skills" items={matchedSkills.slice(0, 8)} />
-                    <GapList gaps={missingSkills.slice(0, 8)} />
+                  <div className="role-detail-stack">
+                    <div className="skill-columns">
+                      <SkillList title="Top Matched Skills" items={matchedSkills.slice(0, 8)} />
+                      <GapList gaps={missingSkills.slice(0, 8)} />
+                    </div>
+                    <RoleSkillGapChart
+                      candidateName={selectedCandidate?.candidateName}
+                      items={skillGapChartItems}
+                      roleTitle={selectedRole.title}
+                    />
                   </div>
                 </div>
               </section>
@@ -480,6 +507,98 @@ function GapList({ gaps }: { gaps: CandidateAnalysis["topPositions"][number]["mi
         ))}
       </ul>
     </div>
+  );
+}
+
+function RoleSkillGapChart({
+  candidateName,
+  items,
+  roleTitle
+}: {
+  candidateName?: string;
+  items: Array<{
+    skill: string;
+    source: "required" | "preferred";
+    status: "matched" | "gap";
+    importance: "critical" | "important";
+    coverage: number;
+  }>;
+  roleTitle: string;
+}) {
+  const chartHeight = Math.max(items.length * 42 + 28, 180);
+
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <section className="skill-gap-chart-panel" aria-labelledby="skill-gap-chart-title">
+      <div className="panel-heading">
+        <h3 id="skill-gap-chart-title">Role Skill-Gap Chart</h3>
+        <span>{candidateName ?? "Awaiting resume"}</span>
+      </div>
+      <p className="chart-caption">
+        {candidateName
+          ? `${candidateName}'s coverage for ${roleTitle}. Required skill gaps show lower coverage than preferred gaps.`
+          : `Select a candidate to compare skills against ${roleTitle}.`}
+      </p>
+      <figure className="skill-gap-chart-figure">
+        <svg
+          aria-labelledby="skill-gap-chart-title"
+          className="skill-gap-chart"
+          role="img"
+          viewBox={`0 0 420 ${chartHeight}`}
+        >
+          {items.map((item, index) => {
+            const y = 18 + index * 42;
+            const fillWidth = Math.max(26, Math.round((item.coverage / 100) * 190));
+            const barClassName = [
+              "chart-bar-fill",
+              item.status === "matched" ? "is-matched" : "",
+              item.source === "required" ? "is-required" : "is-preferred"
+            ]
+              .filter(Boolean)
+              .join(" ");
+
+            return (
+              <g key={item.skill} transform={`translate(0 ${y})`}>
+                <text className="chart-skill-label" x="0" y="14">
+                  {item.skill}
+                </text>
+                <rect className="chart-bar-track" height="14" rx="7" ry="7" width="190" x="176" y="0" />
+                <rect className={barClassName} height="14" rx="7" ry="7" width={fillWidth} x="176" y="0" />
+                <text className="chart-meta-label" x="378" y="12">
+                  {item.status === "matched" ? "Matched" : item.importance}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+        <figcaption className="chart-legend">
+          <span>
+            <i className="legend-swatch matched" aria-hidden="true" />
+            Matched skill
+          </span>
+          <span>
+            <i className="legend-swatch preferred" aria-hidden="true" />
+            Preferred gap
+          </span>
+          <span>
+            <i className="legend-swatch critical" aria-hidden="true" />
+            Required gap
+          </span>
+        </figcaption>
+      </figure>
+      <ul className="chart-detail-list" aria-label={`${roleTitle} skill coverage details`}>
+        {items.map((item) => (
+          <li key={item.skill}>
+            <span>{item.skill}</span>
+            <small>{item.source === "required" ? "Required" : "Preferred"}</small>
+            <strong>{item.status === "matched" ? "Matched" : item.importance}</strong>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
