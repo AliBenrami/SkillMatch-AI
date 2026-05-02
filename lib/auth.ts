@@ -13,7 +13,7 @@ type SignedSessionPayload = SessionUser & {
 };
 
 function secret() {
-  const configuredSecret = process.env.AUTH_SECRET?.trim();
+  const configuredSecret = process.env.AUTH_SECRET?.trim() || process.env.BETTER_AUTH_SECRET?.trim();
 
   if (configuredSecret) {
     if (!allowsLocalDemoSecret() && !isStrongSecret(configuredSecret)) {
@@ -24,7 +24,7 @@ function secret() {
   }
 
   if (!allowsLocalDemoSecret()) {
-    throw new Error("AUTH_SECRET must be set to a strong random value in production.");
+    throw new Error("AUTH_SECRET or BETTER_AUTH_SECRET must be set to a strong random value in production.");
   }
 
   return localDemoSecret;

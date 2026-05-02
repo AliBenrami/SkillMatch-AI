@@ -9,6 +9,7 @@ const admin: SessionUser = {
 };
 
 const originalAuthSecret = process.env.AUTH_SECRET;
+const originalBetterAuthSecret = process.env.BETTER_AUTH_SECRET;
 const originalNodeEnv = process.env.NODE_ENV;
 
 function setNodeEnv(value: typeof process.env.NODE_ENV) {
@@ -22,6 +23,7 @@ function setNodeEnv(value: typeof process.env.NODE_ENV) {
 
 beforeEach(() => {
   delete process.env.AUTH_SECRET;
+  delete process.env.BETTER_AUTH_SECRET;
   setNodeEnv("test");
   vi.useRealTimers();
 });
@@ -31,6 +33,12 @@ afterEach(() => {
     delete process.env.AUTH_SECRET;
   } else {
     process.env.AUTH_SECRET = originalAuthSecret;
+  }
+
+  if (originalBetterAuthSecret === undefined) {
+    delete process.env.BETTER_AUTH_SECRET;
+  } else {
+    process.env.BETTER_AUTH_SECRET = originalBetterAuthSecret;
   }
 
   setNodeEnv(originalNodeEnv);
@@ -84,11 +92,11 @@ describe("auth and RBAC", () => {
     ).toThrow();
   });
 
-  it("requires AUTH_SECRET in production", () => {
+  it("requires a session secret in production", () => {
     setNodeEnv("production");
     delete process.env.AUTH_SECRET;
 
-    expect(() => createSessionToken(admin)).toThrow(/AUTH_SECRET must be set/);
+    expect(() => createSessionToken(admin)).toThrow(/AUTH_SECRET or BETTER_AUTH_SECRET must be set/);
   });
 
   it("rejects weak AUTH_SECRET values in production", () => {
@@ -96,6 +104,15 @@ describe("auth and RBAC", () => {
     process.env.AUTH_SECRET = "short-secret";
 
     expect(() => createSessionToken(admin)).toThrow(/AUTH_SECRET must be a strong random value/);
+  });
+
+  it("accepts BETTER_AUTH_SECRET as the production session secret", () => {
+    setNodeEnv("production");
+    process.env.BETTER_AUTH_SECRET = "a-production-secret-with-enough-entropy-12345";
+
+    const token = createSessionToken(admin);
+
+    expect(parseSessionToken(token)).toEqual(admin);
   });
 
   it("enforces role-based access for admin and recruiter areas", () => {

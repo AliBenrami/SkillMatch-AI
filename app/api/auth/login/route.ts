@@ -17,29 +17,34 @@ async function appendLoginAuditEvent(input: {
 }
 
 export async function POST(request: Request) {
-  const { data, error } = parseJsonRequest(loginRequestSchema, await request.json());
-  if (!data) {
-    return NextResponse.json({ error }, { status: 400 });
-  }
+  try {
+    const { data, error } = parseJsonRequest(loginRequestSchema, await request.json());
+    if (!data) {
+      return NextResponse.json({ error }, { status: 400 });
+    }
 
-  const { email, password } = data;
-  const user = await verifyCredentials(email, password);
+    const { email, password } = data;
+    const user = await verifyCredentials(email, password);
 
-  if (!user) {
+    if (!user) {
+      await appendLoginAuditEvent({
+        actor: email || "anonymous",
+        action: "failed_login",
+        details: { reason: "invalid_credentials" }
+      });
+      return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
+    }
+
+    await setSessionUser(user);
     await appendLoginAuditEvent({
-      actor: email || "anonymous",
-      action: "failed_login",
-      details: { reason: "invalid_credentials" }
+      actor: user.email,
+      action: "login",
+      details: { role: user.role }
     });
-    return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
+
+    return NextResponse.json({ user });
+  } catch (error) {
+    console.error("Unable to complete login", error);
+    return NextResponse.json({ error: "Sign in is temporarily unavailable." }, { status: 500 });
   }
-
-  await setSessionUser(user);
-  await appendLoginAuditEvent({
-    actor: user.email,
-    action: "login",
-    details: { role: user.role }
-  });
-
-  return NextResponse.json({ user });
 }

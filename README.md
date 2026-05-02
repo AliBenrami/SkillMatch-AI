@@ -35,6 +35,7 @@ The available variables are listed in `.env.example`.
 | `DATABASE_URL` | Optional for local development; required for persistent database storage | Neon/Postgres connection string used by `lib/db.ts`. When absent, analyses, candidate recommendations, and audit events are kept in process memory. |
 | `NEXT_PUBLIC_APP_NAME` | Optional | Public application name displayed by the app. |
 | `AUTH_SECRET` | Recommended | Secret used to sign the session cookie. If absent, the app uses a local demo secret from `lib/auth.ts`; set a long random value outside local demos. |
+| `BETTER_AUTH_SECRET` | Optional | Compatibility fallback for signing the session cookie when `AUTH_SECRET` is not set. |
 | `AUTH_USERS_JSON` | Optional | JSON array of credential users. Each user needs `name`, `email`, `role`, and either `password` or `passwordHash`. When absent, demo credential users from `lib/auth-model.ts` are used. |
 | `R2_ACCOUNT_ID` | Optional | Cloudflare account ID for R2/S3-compatible resume storage. |
 | `R2_ACCESS_KEY_ID` | Optional | R2 access key ID. |
@@ -96,3 +97,14 @@ npm run test:e2e
 `npm run test:e2e` starts the app with Playwright's configured web server at `http://127.0.0.1:3000/login` and runs the Chromium end-to-end tests from `tests/e2e`.
 
 The GitHub Actions workflow in `.github/workflows/ci.yml` runs on pull requests and pushes to `main`. It uses Node.js 22, installs dependencies with `npm ci`, installs the Playwright Chromium browser, then runs lint, unit tests, build, and Playwright end-to-end tests.
+
+## Documentation Maintenance
+
+Project documentation now lives in the repo under `docs/` so process notes can evolve with the codebase:
+
+- `docs/README.md` explains the lightweight documentation workflow and when updates are expected.
+- `docs/changelog.md` records architecture, requirements, testing, and deployment-facing changes over time.
+- `docs/source/` is for editable source artifacts such as `.docx`, slide decks, and working notes when they should be versioned with the repo.
+- `docs/generated/` is for exported artifacts such as PDFs or presentation renders when they are needed for review or submission.
+
+When a pull request changes user-facing behavior, architecture, environment requirements, testing strategy, or deployment steps, update the relevant docs in the same branch and note the change in `docs/changelog.md`.

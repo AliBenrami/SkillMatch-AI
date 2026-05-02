@@ -454,6 +454,11 @@ input {
   height: calc(100% - 38px);
 }
 
+.role-detail-stack {
+  display: grid;
+  gap: 20px;
+}
+
 .score-column {
   display: grid;
   place-items: center;
@@ -493,7 +498,7 @@ input {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 24px;
-  padding-top: 48px;
+  padding-top: 24px;
 }
 
 .match-table,
@@ -544,6 +549,123 @@ input {
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.skill-gap-chart-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e7ece6;
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, #fcfdfb 0%, #f4f8f2 100%);
+}
+
+.chart-caption {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.skill-gap-chart-figure {
+  margin: 0;
+}
+
+.skill-gap-chart {
+  width: 100%;
+  height: auto;
+}
+
+.chart-skill-label,
+.chart-meta-label {
+  fill: #364037;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chart-meta-label {
+  text-anchor: end;
+  text-transform: capitalize;
+}
+
+.chart-bar-track {
+  fill: #e6ece3;
+}
+
+.chart-bar-fill.is-matched {
+  fill: #1f9d68;
+}
+
+.chart-bar-fill.is-preferred {
+  fill: #f2b467;
+}
+
+.chart-bar-fill.is-required {
+  fill: #e57c1f;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.legend-swatch.matched {
+  background: #1f9d68;
+}
+
+.legend-swatch.preferred {
+  background: #f2b467;
+}
+
+.legend-swatch.critical {
+  background: #e57c1f;
+}
+
+.chart-detail-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chart-detail-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  border-top: 1px solid #e8ede6;
+  padding-top: 8px;
+  font-size: 13px;
+}
+
+.chart-detail-list small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.chart-detail-list strong {
+  color: #754100;
+  text-transform: capitalize;
 }
 
 .right-stack {
@@ -723,7 +845,7 @@ meter {
   gap: 12px;
 }
 
-.data-grid {
+data-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -921,5 +1043,10 @@ meter {
 
   .skill-columns {
     padding-top: 12px;
+  }
+
+  .chart-detail-list li {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }
