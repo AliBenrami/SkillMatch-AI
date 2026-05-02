@@ -33,6 +33,14 @@ type UploadResponse = {
   failures: Array<{ fileName: string; error: string }>;
 };
 
+type SkillGapChartItem = {
+  skill: string;
+  source: "required" | "preferred";
+  status: "matched" | "gap";
+  importance: "critical" | "important";
+  coverage: number;
+};
+
 type View = "dashboard" | "analyses" | "learning" | "workforce" | "audit" | "settings";
 
 const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
@@ -79,12 +87,12 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       .slice(0, 8);
   }, [candidates]);
 
-  const skillGapChartItems = useMemo(() => {
+  const skillGapChartItems = useMemo<SkillGapChartItem[]>(() => {
     const matchedSkills = new Set(selectedResult?.matchedSkills ?? []);
     const missingSkills = new Map((selectedResult?.missingSkills ?? []).map((gap) => [gap.skill, gap]));
 
     return [...selectedRole.requiredSkills, ...selectedRole.preferredSkills].map((skill) => {
-      const source = selectedRole.requiredSkills.includes(skill) ? "required" : "preferred";
+      const source: SkillGapChartItem["source"] = selectedRole.requiredSkills.includes(skill) ? "required" : "preferred";
       const isMatched = matchedSkills.has(skill);
       const missingGap = missingSkills.get(skill);
 
@@ -516,13 +524,7 @@ function RoleSkillGapChart({
   roleTitle
 }: {
   candidateName?: string;
-  items: Array<{
-    skill: string;
-    source: "required" | "preferred";
-    status: "matched" | "gap";
-    importance: "critical" | "important";
-    coverage: number;
-  }>;
+  items: SkillGapChartItem[];
   roleTitle: string;
 }) {
   const chartHeight = Math.max(items.length * 42 + 28, 180);
