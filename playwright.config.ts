@@ -1,8 +1,53 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
+
+type Project = NonNullable<PlaywrightTestConfig["projects"]>[number];
 
 const edgeChannel =
   process.env.PLAYWRIGHT_EDGE_CHANNEL ??
   (process.platform === "win32" ? "msedge" : undefined);
+
+const defaultProjects: Project[] = [
+  {
+    name: "chromium",
+    use: { ...devices["Desktop Chrome"] }
+  }
+];
+
+const crossBrowserProjects: Project[] = [
+  {
+    name: "chrome",
+    use: { ...devices["Desktop Chrome"], channel: "chrome" }
+  },
+  {
+    name: "edge",
+    use: edgeChannel
+      ? { ...devices["Desktop Edge"], channel: edgeChannel }
+      : { ...devices["Desktop Edge"] }
+  },
+  {
+    name: "webkit",
+    use: { ...devices["Desktop Safari"] }
+  }
+];
+
+function getProjects(): Project[] {
+  const requestedProjects = (process.env.PLAYWRIGHT_PROJECTS ?? "")
+    .split(",")
+    .map((project) => project.trim())
+    .filter(Boolean);
+
+  const availableProjects = [...defaultProjects, ...crossBrowserProjects];
+
+  if (requestedProjects.length > 0) {
+    return availableProjects.filter((project) => Boolean(project.name && requestedProjects.includes(project.name)));
+  }
+
+  if (process.env.PLAYWRIGHT_CROSS_BROWSER === "1") {
+    return availableProjects;
+  }
+
+  return defaultProjects;
+}
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -21,20 +66,5 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 30_000
   },
-  projects: [
-    {
-      name: "chrome",
-      use: { ...devices["Desktop Chrome"] }
-    },
-    {
-      name: "safari",
-      use: { ...devices["Desktop Safari"] }
-    },
-    {
-      name: "edge",
-      use: edgeChannel
-        ? { ...devices["Desktop Edge"], channel: edgeChannel }
-        : { ...devices["Desktop Edge"] }
-    }
-  ]
+  projects: getProjects()
 });
