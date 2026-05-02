@@ -16,7 +16,9 @@ const crossBrowserProjects: Project[] = [
   },
   {
     name: "edge",
-    use: { ...devices["Desktop Edge"], channel: "msedge" }
+    use: edgeChannel
+      ? { ...devices["Desktop Edge"], channel: edgeChannel }
+      : { ...devices["Desktop Edge"] }
   },
   {
     name: "webkit",
@@ -43,9 +45,14 @@ function getProjects(): Project[] {
   return defaultProjects;
 }
 
+const edgeChannel =
+  process.env.PLAYWRIGHT_EDGE_CHANNEL ??
+  (process.platform === "win32" ? "msedge" : undefined);
+
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
+  workers: 1,
   use: {
     baseURL: "http://127.0.0.1:3000",
     trace: "on-first-retry"

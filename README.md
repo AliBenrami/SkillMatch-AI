@@ -119,3 +119,14 @@ Browser limitations:
 - The `webkit` project uses Playwright's WebKit browser for Safari-like coverage and requires `npx playwright install webkit` before first use.
 
 The GitHub Actions workflow in `.github/workflows/ci.yml` runs on pull requests and pushes to `main`. It uses Node.js 22, installs dependencies with `npm ci`, installs the Playwright Chromium browser, then runs lint, unit tests, build, and Playwright end-to-end tests.
+
+## Documentation Maintenance
+
+Project documentation now lives in the repo under `docs/` so process notes can evolve with the codebase:
+
+- `docs/README.md` explains the lightweight documentation workflow and when updates are expected.
+- `docs/changelog.md` records architecture, requirements, testing, and deployment-facing changes over time.
+- `docs/source/` is for editable source artifacts such as `.docx`, slide decks, and working notes when they should be versioned with the repo.
+- `docs/generated/` is for exported artifacts such as PDFs or presentation renders when they are needed for review or submission.
+
+When a pull request changes user-facing behavior, architecture, environment requirements, testing strategy, or deployment steps, update the relevant docs in the same branch and note the change in `docs/changelog.md`.
