@@ -37,7 +37,7 @@ test("allows signed-out users to open signup", async ({ page }) => {
 });
 
 test("requires credential sign-in, uploads a PDF resume, and ranks positions", async ({ page }) => {
-  const uploadInput = page.locator('input[type="file"]').first();
+  const uploadInput = page.getByLabel("Upload resume files");
 
   await page.context().clearCookies();
   await page.goto("/");
@@ -70,7 +70,7 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
 });
 
 test("keeps failed upload state visible after processing", async ({ page }) => {
-  const uploadInput = page.locator('input[type="file"]').first();
+  const uploadInput = page.getByLabel("Upload resume files");
 
   await page.context().clearCookies();
   await page.goto("/");
