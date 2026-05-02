@@ -2,6 +2,10 @@ import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/te
 
 type Project = NonNullable<PlaywrightTestConfig["projects"]>[number];
 
+const edgeChannel =
+  process.env.PLAYWRIGHT_EDGE_CHANNEL ??
+  (process.platform === "win32" ? "msedge" : undefined);
+
 const defaultProjects: Project[] = [
   {
     name: "chromium",
@@ -35,7 +39,7 @@ function getProjects(): Project[] {
   const availableProjects = [...defaultProjects, ...crossBrowserProjects];
 
   if (requestedProjects.length > 0) {
-    return availableProjects.filter((project) => requestedProjects.includes(project.name));
+    return availableProjects.filter((project) => Boolean(project.name && requestedProjects.includes(project.name)));
   }
 
   if (process.env.PLAYWRIGHT_CROSS_BROWSER === "1") {
@@ -44,10 +48,6 @@ function getProjects(): Project[] {
 
   return defaultProjects;
 }
-
-const edgeChannel =
-  process.env.PLAYWRIGHT_EDGE_CHANNEL ??
-  (process.platform === "win32" ? "msedge" : undefined);
 
 export default defineConfig({
   testDir: "./tests/e2e",
