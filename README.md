@@ -97,3 +97,11 @@ npm run test:e2e
 `npm run test:e2e` starts the app with Playwright's configured web server at `http://127.0.0.1:3000/login` and runs the Chromium end-to-end tests from `tests/e2e`.
 
 The GitHub Actions workflow in `.github/workflows/ci.yml` runs on pull requests and pushes to `main`. It uses Node.js 22, installs dependencies with `npm ci`, installs the Playwright Chromium browser, then runs lint, unit tests, build, and Playwright end-to-end tests.
+
+## Documentation Maintenance
+
+Documentation updates belong in the same change as the code update.
+
+- Use `docs/documentation-process.md` when a change affects setup, architecture, behavior, operational expectations, or developer workflows.
+- Add a short dated entry to `docs/implementation-change-log.md` whenever repo-facing implementation details change.
+- The PR checklist in `.github/PULL_REQUEST_TEMPLATE.md` is the review backstop for this process.
