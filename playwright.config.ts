@@ -1,7 +1,5 @@
 import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
 
-type Project = NonNullable<PlaywrightTestConfig["projects"]>[number];
-
 const edgeChannel =
   process.env.PLAYWRIGHT_EDGE_CHANNEL ??
   (process.platform === "win32" ? "msedge" : undefined);
