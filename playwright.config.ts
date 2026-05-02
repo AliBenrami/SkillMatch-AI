@@ -4,16 +4,16 @@ const edgeChannel =
   process.env.PLAYWRIGHT_EDGE_CHANNEL ??
   (process.platform === "win32" ? "msedge" : undefined);
 
-type Project = NonNullable<PlaywrightTestConfig["projects"]>[number];
+type PlaywrightProject = NonNullable<PlaywrightTestConfig["projects"]>[number];
 
-const defaultProjects: Project[] = [
+const defaultProjects: PlaywrightProject[] = [
   {
     name: "chromium",
     use: { ...devices["Desktop Chrome"] }
   }
 ];
 
-const crossBrowserProjects: Project[] = [
+const crossBrowserProjects: PlaywrightProject[] = [
   {
     name: "chrome",
     use: { ...devices["Desktop Chrome"], channel: "chrome" }
@@ -30,7 +30,7 @@ const crossBrowserProjects: Project[] = [
   }
 ];
 
-function getProjects(): Project[] {
+function getProjects(): PlaywrightProject[] {
   const requestedProjects = (process.env.PLAYWRIGHT_PROJECTS ?? "")
     .split(",")
     .map((project) => project.trim())
