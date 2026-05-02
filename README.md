@@ -96,6 +96,28 @@ npm run test:e2e
 
 `npm run test:e2e` starts the app with Playwright's configured web server at `http://127.0.0.1:3000/login` and runs the Chromium end-to-end tests from `tests/e2e`.
 
+For browser-matrix work on issue #40, the Playwright config also supports opt-in Chrome, Edge, and Safari-like WebKit coverage:
+
+```powershell
+$env:PLAYWRIGHT_CROSS_BROWSER="1"
+npx playwright install webkit
+npm run test:e2e
+```
+
+You can also target a subset of projects:
+
+```powershell
+$env:PLAYWRIGHT_PROJECTS="webkit"
+npx playwright install webkit
+npm run test:e2e
+```
+
+Browser limitations:
+
+- The default `npm run test:e2e` flow stays on the Playwright-managed Chromium project so the existing local and CI checks do not change implicitly.
+- The `chrome` and `edge` projects use Playwright browser channels (`channel: "chrome"` and `channel: "msedge"`), so they require locally installed Chrome or Edge.
+- The `webkit` project uses Playwright's WebKit browser for Safari-like coverage and requires `npx playwright install webkit` before first use.
+
 The GitHub Actions workflow in `.github/workflows/ci.yml` runs on pull requests and pushes to `main`. It uses Node.js 22, installs dependencies with `npm ci`, installs the Playwright Chromium browser, then runs lint, unit tests, build, and Playwright end-to-end tests.
 
 ## Documentation Maintenance
