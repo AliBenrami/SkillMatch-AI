@@ -63,6 +63,8 @@ test("requires SSO, uploads a PDF resume, and ranks positions", async ({ page })
   await expect(page.getByRole("button", { name: /Alex Smith Software/ })).toBeVisible();
   await expect(page.getByText("Software Development Engineer II").nth(1)).toBeVisible();
   await expect(page.getByText("Recommended Positions")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Role Skill-Gap Chart" })).toBeVisible();
+  await expect(page.getByLabel("Software Development Engineer II skill coverage details").getByText("system design")).toBeVisible();
 });
 
 test("keeps failed upload state visible after processing", async ({ page }) => {
