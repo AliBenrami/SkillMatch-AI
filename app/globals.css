@@ -665,28 +665,26 @@ input:focus {
 
 /* ─── Skill match overview ───────────────────────────────────── */
 
-.overview-panel {
-  min-height: 540px;
-}
-
 .overview-content {
   display: grid;
-  grid-template-columns: 185px 1fr;
-  gap: 20px;
-  height: calc(100% - 40px);
+  gap: 18px;
 }
 
-.role-detail-stack {
+.overview-summary {
   display: grid;
+  grid-template-columns: 168px 1fr 1fr;
   gap: 18px;
+  align-items: start;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
 }
 
 .score-column {
   display: grid;
   place-items: center;
   align-content: start;
-  gap: 10px;
-  padding: 18px 14px 12px 0;
+  gap: 8px;
+  padding: 4px 14px 0 4px;
   border-right: 1px solid var(--border);
   text-align: center;
 }
@@ -694,14 +692,15 @@ input:focus {
 .score-column > span {
   max-width: 150px;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
 .score-column > strong {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
   color: var(--ink);
+  margin-top: 2px;
 }
 
 .score-ring {
@@ -716,14 +715,14 @@ input:focus {
 }
 
 .score-ring.large {
-  width: 130px;
-  height: 130px;
+  width: 116px;
+  height: 116px;
 }
 
 .score-ring strong {
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 800;
-  letter-spacing: -1.5px;
+  letter-spacing: -1.2px;
   line-height: 1;
   color: var(--ink);
 }
@@ -738,15 +737,8 @@ input:focus {
 .score-column.is-empty .score-ring strong {
   color: var(--subtle);
   font-weight: 700;
-  font-size: 28px;
+  font-size: 26px;
   letter-spacing: 0;
-}
-
-.skill-columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  padding-top: 18px;
 }
 
 .match-table,
@@ -1493,9 +1485,6 @@ meter::-moz-meter-bar {
     grid-template-columns: 1fr;
   }
 
-  .overview-panel {
-    min-height: auto;
-  }
 }
 
 @media (max-width: 760px) {
@@ -1506,7 +1495,7 @@ meter::-moz-meter-bar {
   .app-header,
   .brand-block,
   .overview-content,
-  .skill-columns,
+  .overview-summary,
   .audit-log-row,
   .system-health,
   .screen-toolbar,
@@ -1531,11 +1520,7 @@ meter::-moz-meter-bar {
   .score-column {
     border-right: 0;
     border-bottom: 1px solid var(--border);
-    padding-bottom: 16px;
-  }
-
-  .skill-columns {
-    padding-top: 12px;
+    padding: 0 0 16px;
   }
 
   .chart-detail-list li {

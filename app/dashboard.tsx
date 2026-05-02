@@ -312,28 +312,26 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   {selectedCandidate ? <span>{selectedCandidate.candidateName}</span> : null}
                 </div>
                 <div className="overview-content">
-                  <div className={`score-column${selectedResult ? "" : " is-empty"}`}>
-                    <div
-                      className="score-ring large"
-                      style={{ "--score": `${selectedResult?.score ?? 0}%` } as CSSProperties}
-                      aria-label={selectedResult ? `Match score ${selectedResult.score}%` : "No match score yet"}
-                    >
-                      <strong>{selectedResult ? `${selectedResult.score}%` : "—"}</strong>
+                  <div className="overview-summary">
+                    <div className={`score-column${selectedResult ? "" : " is-empty"}`}>
+                      <div
+                        className="score-ring large"
+                        style={{ "--score": `${selectedResult?.score ?? 0}%` } as CSSProperties}
+                        aria-label={selectedResult ? `Match score ${selectedResult.score}%` : "No match score yet"}
+                      >
+                        <strong>{selectedResult ? `${selectedResult.score}%` : "—"}</strong>
+                      </div>
+                      <strong>Overall Match</strong>
+                      <span>{selectedResult ? selectedRole.title : "Upload resumes to rank positions"}</span>
                     </div>
-                    <strong>Overall Match</strong>
-                    <span>{selectedResult ? selectedRole.title : "Upload resumes to rank positions"}</span>
+                    <SkillList title="Top Matched Skills" items={matchedSkills.slice(0, 8)} />
+                    <GapList gaps={missingSkills.slice(0, 8)} />
                   </div>
-                  <div className="role-detail-stack">
-                    <div className="skill-columns">
-                      <SkillList title="Top Matched Skills" items={matchedSkills.slice(0, 8)} />
-                      <GapList gaps={missingSkills.slice(0, 8)} />
-                    </div>
-                    <RoleSkillGapChart
-                      candidateName={selectedCandidate?.candidateName}
-                      items={skillGapChartItems}
-                      roleTitle={selectedRole.title}
-                    />
-                  </div>
+                  <RoleSkillGapChart
+                    candidateName={selectedCandidate?.candidateName}
+                    items={skillGapChartItems}
+                    roleTitle={selectedRole.title}
+                  />
                 </div>
               </section>
 
@@ -691,17 +689,21 @@ function BottomPanels({
           <h2>Workforce Gap Report</h2>
           <span>{selectedRole.title}</span>
         </div>
-        <div className="gap-bars">
-          {(workforceGaps.length ? workforceGaps : selectedRole.requiredSkills.slice(0, 5).map((skill, index) => [skill, 5 - index] as [string, number])).map(
-            ([skill, count]) => (
+        {workforceGaps.length ? (
+          <div className="gap-bars">
+            {workforceGaps.map(([skill, count]) => (
               <div key={skill}>
                 <span>{skill}</span>
                 <meter value={Number(count)} min={0} max={Math.max(files.length, 5)} />
                 <strong>{Number(count)}</strong>
               </div>
-            )
-          )}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <p className="list-placeholder">
+            Workforce gaps will populate as candidates are analysed against this role.
+          </p>
+        )}
         <div className="system-health">
           <Activity aria-hidden="true" />
           <span>API healthy</span>
