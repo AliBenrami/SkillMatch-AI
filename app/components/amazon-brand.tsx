@@ -14,11 +14,13 @@ export function AmazonLogo({ compact = false }: { compact?: boolean }) {
 export function NavigationRail<TView extends string>({
   currentView,
   items,
-  onSelect
+  onSelect,
+  onLogout
 }: {
   currentView: TView;
   items: Array<{ id: TView; label: string; icon: LucideIcon }>;
   onSelect: (view: TView) => void;
+  onLogout?: () => void;
 }) {
   return (
     <aside className="side-nav" aria-label="Primary">
@@ -37,18 +39,24 @@ export function NavigationRail<TView extends string>({
           </button>
         );
       })}
+      {onLogout ? (
+        <div className="nav-logout">
+          <button className="nav-item" onClick={onLogout} title="Sign out">
+            <LogOut aria-hidden="true" />
+            Sign out
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
 }
 
 export function AppHeader({
   children,
-  user,
-  onLogout
+  user
 }: {
   children: ReactNode;
   user: SessionUser;
-  onLogout: () => void;
 }) {
   return (
     <header className="app-header">
@@ -62,14 +70,10 @@ export function AppHeader({
       <div className="audit-status">
         <CheckCircle2 aria-hidden="true" />
         <div>
-          <strong>Session Protected</strong>
-          <span>{user.name} ({user.role.replace("_", " ")})</span>
+          <strong>Session protected</strong>
+          <span>{user.name} &middot; {user.role.replace(/_/g, " ")}</span>
         </div>
       </div>
-      <button className="icon-text-button" onClick={onLogout}>
-        <LogOut aria-hidden="true" />
-        Sign out
-      </button>
     </header>
   );
 }

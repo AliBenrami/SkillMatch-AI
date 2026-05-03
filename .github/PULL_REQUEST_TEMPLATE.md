@@ -1,23 +1,15 @@
 ## Summary
 
-- What changed?
-- Why was it needed?
+- Describe what changed.
+- Describe why the change was needed.
 
 ## Testing
 
-- [ ] Not run
-- [ ] `npm run lint`
-- [ ] `npm test`
-- [ ] `npm run build`
-- [ ] `npm run test:e2e`
-- [ ] Other (describe below)
+- List the checks you ran.
+- Note any checks you could not run.
 
-## Documentation Review
+## Documentation
 
-- [ ] I checked whether this change affects `README.md`, `docs/**`, or other implementation documentation.
-- [ ] If documentation changed, I updated the relevant files in this PR.
-- [ ] If repo-facing implementation details changed, I added or updated an entry in `docs/implementation-change-log.md`.
-
-## Notes
-
-- Additional context, rollout details, or follow-ups.
+- [ ] I updated `README.md` or `docs/*` when behavior, architecture, testing, or deployment expectations changed.
+- [ ] I added or skipped a `docs/changelog.md` entry with a short reason.
+- [ ] I organized any source Office docs under `docs/source/` and any committed exports under `docs/generated/`.

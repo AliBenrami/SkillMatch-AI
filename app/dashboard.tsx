@@ -219,10 +219,10 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
   return (
     <main className="product-shell">
-      <NavigationRail currentView={view} items={navItems} onSelect={setView} />
+      <NavigationRail currentView={view} items={navItems} onSelect={setView} onLogout={logout} />
 
       <section className="main-product">
-        <AppHeader user={user} onLogout={logout}>
+        <AppHeader user={user}>
           <label className="role-context">
             Role Context
             <select value={roleId} onChange={(event) => setRoleId(event.target.value)}>
@@ -312,24 +312,26 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   {selectedCandidate ? <span>{selectedCandidate.candidateName}</span> : null}
                 </div>
                 <div className="overview-content">
-                  <div className="score-column">
-                    <div className="score-ring large" style={{ "--score": `${selectedResult?.score ?? 0}%` } as CSSProperties}>
-                      <strong>{selectedResult?.score ?? 0}%</strong>
+                  <div className="overview-summary">
+                    <div className={`score-column${selectedResult ? "" : " is-empty"}`}>
+                      <div
+                        className="score-ring large"
+                        style={{ "--score": `${selectedResult?.score ?? 0}%` } as CSSProperties}
+                        aria-label={selectedResult ? `Match score ${selectedResult.score}%` : "No match score yet"}
+                      >
+                        <strong>{selectedResult ? `${selectedResult.score}%` : "—"}</strong>
+                      </div>
+                      <strong>Overall Match</strong>
+                      <span>{selectedResult ? selectedRole.title : "Upload resumes to rank positions"}</span>
                     </div>
-                    <strong>Overall Match</strong>
-                    <span>{selectedResult ? selectedRole.title : "Upload resumes to rank positions"}</span>
+                    <SkillList title="Top Matched Skills" items={matchedSkills.slice(0, 8)} />
+                    <GapList gaps={missingSkills.slice(0, 8)} />
                   </div>
-                  <div className="role-detail-stack">
-                    <div className="skill-columns">
-                      <SkillList title="Top Matched Skills" items={matchedSkills.slice(0, 8)} />
-                      <GapList gaps={missingSkills.slice(0, 8)} />
-                    </div>
-                    <RoleSkillGapChart
-                      candidateName={selectedCandidate?.candidateName}
-                      items={skillGapChartItems}
-                      roleTitle={selectedRole.title}
-                    />
-                  </div>
+                  <RoleSkillGapChart
+                    candidateName={selectedCandidate?.candidateName}
+                    items={skillGapChartItems}
+                    roleTitle={selectedRole.title}
+                  />
                 </div>
               </section>
 
@@ -356,10 +358,10 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 <article className="candidate-card" key={candidate.id}>
                   <div className="panel-heading">
                     <h2>{candidate.candidateName}</h2>
-                    <span>{candidate.topPositions[0]?.score ?? 0}%</span>
+                    <em className="status-chip">{candidate.topPositions[0]?.score ?? 0}%</em>
                   </div>
                   <p>{candidate.fileName}</p>
-                  <strong>{candidate.topPositions[0]?.role.title ?? "No recommendation"}</strong>
+                  <strong style={{ fontSize: "13px" }}>{candidate.topPositions[0]?.role.title ?? "No recommendation"}</strong>
                   <small>{candidate.topPositions[0]?.explanation}</small>
                 </article>
               ))}
@@ -459,14 +461,18 @@ function SkillList({ title, items }: { title: string; items: string[] }) {
         <CheckCircle2 aria-hidden="true" />
         {title}
       </h3>
-      <ul className="match-table">
-        {items.map((skill) => (
-          <li key={skill}>
-            <span>{skill}</span>
-            <small>Strong</small>
-          </li>
-        ))}
-      </ul>
+      {items.length ? (
+        <ul className="match-table">
+          {items.map((skill) => (
+            <li key={skill}>
+              <span>{skill}</span>
+              <small>Strong</small>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="list-placeholder">Upload a resume to see matched skills.</p>
+      )}
     </div>
   );
 }
@@ -478,14 +484,18 @@ function GapList({ gaps }: { gaps: CandidateAnalysis["topPositions"][number]["mi
         <AlertTriangle aria-hidden="true" />
         Missing Skills
       </h3>
-      <ul className="gap-table">
-        {gaps.map((gap) => (
-          <li key={gap.skill}>
-            <span>{gap.skill}</span>
-            <small>{gap.importance}</small>
-          </li>
-        ))}
-      </ul>
+      {gaps.length ? (
+        <ul className="gap-table">
+          {gaps.map((gap) => (
+            <li key={gap.skill}>
+              <span>{gap.skill}</span>
+              <small>{gap.importance}</small>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="list-placeholder">No gaps to display yet.</p>
+      )}
     </div>
   );
 }
@@ -577,24 +587,31 @@ function RoleSkillGapChart({
 }
 
 function RecommendationPanel({ candidate }: { candidate?: CandidateAnalysis }) {
+  const positions = candidate?.topPositions ?? [];
   return (
     <section className="concept-panel">
       <div className="panel-heading">
         <h2>Recommended Positions</h2>
         <span>Prioritized</span>
       </div>
-      <ol className="recommendation-list">
-        {(candidate?.topPositions ?? []).slice(0, 5).map((recommendation) => (
-          <li key={recommendation.role.id}>
-            <b>{recommendation.rank}</b>
-            <div>
-              <strong>{recommendation.role.title}</strong>
-              <span>{recommendation.role.department}</span>
-            </div>
-            <em>{recommendation.score}%</em>
-          </li>
-        ))}
-      </ol>
+      {positions.length ? (
+        <ol className="recommendation-list">
+          {positions.slice(0, 5).map((recommendation) => (
+            <li key={recommendation.role.id}>
+              <b>{recommendation.rank}</b>
+              <div>
+                <strong>{recommendation.role.title}</strong>
+                <span>{recommendation.role.department}</span>
+              </div>
+              <em>{recommendation.score}%</em>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="list-placeholder">
+          Run an analysis to see ranked role recommendations here.
+        </p>
+      )}
     </section>
   );
 }
@@ -606,20 +623,24 @@ function RecentCandidates({ candidates, onSelect }: { candidates: CandidateAnaly
         <h2>Recent Analyses</h2>
         <span>{candidates.length}</span>
       </div>
-      <ul className="recent-list">
-        {candidates.slice(0, 4).map((candidate) => (
-          <li key={candidate.id}>
-            <button onClick={() => onSelect(candidate.id)}>
-              <FileText aria-hidden="true" />
-              <span>
-                <strong>{candidate.candidateName}</strong>
-                {candidate.topPositions[0]?.role.title}
-              </span>
-              <ChevronRight aria-hidden="true" />
-            </button>
-          </li>
-        ))}
-      </ul>
+      {candidates.length ? (
+        <ul className="recent-list">
+          {candidates.slice(0, 4).map((candidate) => (
+            <li key={candidate.id}>
+              <button onClick={() => onSelect(candidate.id)}>
+                <FileText aria-hidden="true" />
+                <span>
+                  <strong>{candidate.candidateName}</strong>
+                  {candidate.topPositions[0]?.role.title}
+                </span>
+                <ChevronRight aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="list-placeholder">No analyses yet.</p>
+      )}
     </section>
   );
 }
@@ -668,17 +689,21 @@ function BottomPanels({
           <h2>Workforce Gap Report</h2>
           <span>{selectedRole.title}</span>
         </div>
-        <div className="gap-bars">
-          {(workforceGaps.length ? workforceGaps : selectedRole.requiredSkills.slice(0, 5).map((skill, index) => [skill, 5 - index] as [string, number])).map(
-            ([skill, count]) => (
+        {workforceGaps.length ? (
+          <div className="gap-bars">
+            {workforceGaps.map(([skill, count]) => (
               <div key={skill}>
                 <span>{skill}</span>
                 <meter value={Number(count)} min={0} max={Math.max(files.length, 5)} />
                 <strong>{Number(count)}</strong>
               </div>
-            )
-          )}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <p className="list-placeholder">
+            Workforce gaps will populate as candidates are analysed against this role.
+          </p>
+        )}
         <div className="system-health">
           <Activity aria-hidden="true" />
           <span>API healthy</span>
