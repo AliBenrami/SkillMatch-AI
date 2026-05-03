@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { saveAnalysis, saveCandidateBatch } from "@/lib/db";
+import { buildCandidateDuplicateIdentity, saveAnalysis, saveCandidateBatch, type CandidateDuplicateWarning } from "@/lib/db";
 import { extractResumeText } from "@/lib/resume-parser";
-import { analyzeCandidateResume, type CandidateAnalysis } from "@/lib/skillmatch";
+import { analyzeCandidateResume, inferCandidateName, type CandidateAnalysis } from "@/lib/skillmatch";
 import { storeResumeFile } from "@/lib/storage";
 
 const maxFiles = 12;
@@ -35,8 +35,16 @@ export async function POST(request: Request) {
   }
 
   const candidates = [];
-  const uploadOutputs: { candidate: CandidateAnalysis; resumeText: string }[] = [];
+  const uploadOutputs: {
+    candidate: CandidateAnalysis;
+    resumeText: string;
+    duplicateKey: string;
+    clusterKey: string;
+  }[] = [];
   const failures = [];
+  const duplicates: CandidateDuplicateWarning[] = [];
+  const seenDuplicateKeys = new Set<string>();
+  const seenClusterKeys = new Set<string>();
 
   for (const file of files) {
     try {
@@ -53,6 +61,41 @@ export async function POST(request: Request) {
         throw new Error("Resume text could not be extracted.");
       }
 
+      const candidateName = inferCandidateName(file.name, parsed.text);
+      const { duplicateKey, clusterKey } = buildCandidateDuplicateIdentity({
+        candidateName,
+        fileName: file.name,
+        resumeText: parsed.text
+      });
+
+      if (seenDuplicateKeys.has(duplicateKey)) {
+        duplicates.push({
+          type: "exact_duplicate",
+          source: "upload_batch",
+          candidateName,
+          fileName: file.name,
+          duplicateKey,
+          clusterKey,
+          message: "Skipped duplicate resume upload in the same batch."
+        });
+        continue;
+      }
+
+      if (seenClusterKeys.has(clusterKey)) {
+        duplicates.push({
+          type: "candidate_cluster",
+          source: "upload_batch",
+          candidateName,
+          fileName: file.name,
+          duplicateKey,
+          clusterKey,
+          message: "Candidate is clustered with another resume in the same upload batch."
+        });
+      }
+
+      seenDuplicateKeys.add(duplicateKey);
+      seenClusterKeys.add(clusterKey);
+
       const stored = await storeResumeFile({
         fileName: file.name,
         contentType: file.type || "application/octet-stream",
@@ -64,7 +107,7 @@ export async function POST(request: Request) {
         storageUrl: stored.url
       });
       candidates.push(candidate);
-      uploadOutputs.push({ candidate, resumeText: parsed.text });
+      uploadOutputs.push({ candidate, resumeText: parsed.text, duplicateKey, clusterKey });
     } catch (error) {
       failures.push({
         fileName: file.name,
@@ -74,8 +117,15 @@ export async function POST(request: Request) {
   }
 
   if (candidates.length) {
-    await saveCandidateBatch({ actor: user.email, candidates });
+    const saved = await saveCandidateBatch({ actor: user.email, uploads: uploadOutputs });
+    const savedCandidateIds = new Set(saved.candidates.map((candidate) => candidate.id));
+    duplicates.push(...saved.duplicates);
+
     for (const { candidate, resumeText } of uploadOutputs) {
+      if (!savedCandidateIds.has(candidate.id)) {
+        continue;
+      }
+
       const best = candidate.topPositions[0];
       if (best) {
         await saveAnalysis({
@@ -86,7 +136,9 @@ export async function POST(request: Request) {
         });
       }
     }
+
+    return NextResponse.json({ candidates: saved.candidates, duplicates, failures });
   }
 
-  return NextResponse.json({ candidates, failures });
+  return NextResponse.json({ candidates, duplicates, failures });
 }
