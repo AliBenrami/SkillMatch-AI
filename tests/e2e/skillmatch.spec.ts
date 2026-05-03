@@ -38,6 +38,7 @@ test("allows signed-out users to open signup", async ({ page }) => {
 
 test("requires credential sign-in, uploads a PDF resume, and ranks positions", async ({ page }) => {
   const uploadInput = page.getByLabel("Upload resume files");
+  const notice = page.locator(".notice");
 
   await page.context().clearCookies();
   await page.goto("/");
@@ -60,7 +61,7 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeEnabled();
 
   await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
-  await expect(page.getByText(/Processed 1 resume/)).toBeVisible();
+  await expect(notice).toHaveText(/Processed 1 resume/);
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeDisabled();
   await expect(page.getByRole("button", { name: /Alex Smith Software/ }).first()).toBeVisible();
   await expect(page.getByText("Software Development Engineer II").nth(1)).toBeVisible();
@@ -71,6 +72,7 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
 
 test("keeps failed upload state visible after processing", async ({ page }) => {
   const uploadInput = page.getByLabel("Upload resume files");
+  const notice = page.locator(".notice");
 
   await page.context().clearCookies();
   await page.goto("/");
@@ -85,7 +87,7 @@ test("keeps failed upload state visible after processing", async ({ page }) => {
   await uploadInput.setInputFiles(shortResumePath);
   await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
 
-  await expect(page.getByText("No resumes were processed.")).toBeVisible();
+  await expect(notice).toHaveText("No resumes were processed.");
   await expect(page.getByText(/empty-resume\.txt: Resume text could not be extracted\./)).toBeVisible();
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeDisabled();
 });
