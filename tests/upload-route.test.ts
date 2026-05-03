@@ -45,6 +45,12 @@ vi.mock("@/lib/storage", () => ({
 
 import { POST as uploadPost } from "@/app/api/upload/route";
 
+function createUploadRequest(formData: FormData) {
+  return {
+    formData: async () => formData
+  } as Request;
+}
+
 function createCandidate(id: string, fileName: string, candidateName = "Alex Smith") {
   return {
     id,
@@ -129,12 +135,7 @@ describe("POST /api/upload", () => {
     formData.append("resumes", new File(["one"], "Alex-Smith.pdf", { type: "application/pdf" }));
     formData.append("resumes", new File(["two"], "Alex-Smith.pdf", { type: "application/pdf" }));
 
-    const response = await uploadPost(
-      new Request("http://localhost/api/upload", {
-        method: "POST",
-        body: formData
-      })
-    );
+    const response = await uploadPost(createUploadRequest(formData));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -200,12 +201,7 @@ describe("POST /api/upload", () => {
     const formData = new FormData();
     formData.append("resumes", new File(["resume"], "Jordan-Lee.pdf", { type: "application/pdf" }));
 
-    const response = await uploadPost(
-      new Request("http://localhost/api/upload", {
-        method: "POST",
-        body: formData
-      })
-    );
+    const response = await uploadPost(createUploadRequest(formData));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
