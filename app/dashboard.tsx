@@ -491,7 +491,12 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                     <h2>{candidate.candidateName}</h2>
                     <em className="status-chip">{candidate.topPositions[0]?.score ?? 0}%</em>
                   </div>
-                  <p>{candidate.fileName}</p>
+                  <p>
+                    {candidate.fileName}{" "}
+                    <a className="resume-download-link" href={`/api/candidates/${candidate.id}/resume`}>
+                      Download original
+                    </a>
+                  </p>
                   <strong style={{ fontSize: "13px" }}>{candidate.topPositions[0]?.role.title ?? "No recommendation"}</strong>
                   <span className="candidate-meta">
                     {(candidate.structured.skills.slice(0, 4).join(", ") || "No skills extracted")}
