@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
+  Activity,
   AlertTriangle,
   BarChart3,
   BookOpen,
@@ -12,6 +13,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   Search,
+  LogOut,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
@@ -21,7 +23,6 @@ import {
   X,
   type LucideIcon
 } from "lucide-react";
-import { AppHeader, NavigationRail } from "./components/amazon-brand";
 import { roles } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
 import type { AnalysisRecord, AuditEvent } from "@/lib/db";
@@ -87,8 +88,12 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   }, [candidates]);
 
   const skillGapChartItems = useMemo<SkillGapChartItem[]>(() => {
-    const matchedSkills = new Set(selectedResult?.matchedSkills ?? []);
-    const missingSkills = new Map((selectedResult?.missingSkills ?? []).map((gap) => [gap.skill, gap]));
+    if (!selectedResult) {
+      return [];
+    }
+
+    const matchedSkills = new Set(selectedResult.matchedSkills);
+    const missingSkills = new Map(selectedResult.missingSkills.map((gap) => [gap.skill, gap]));
 
     return [...selectedRole.requiredSkills, ...selectedRole.preferredSkills].map((skill) => {
       const source: SkillGapChartItem["source"] = selectedRole.requiredSkills.includes(skill) ? "required" : "preferred";
@@ -218,27 +223,60 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
   return (
     <main className="product-shell">
-      <NavigationRail currentView={view} items={navItems} onSelect={setView} onLogout={logout} />
+      <div className="product-layout">
+        <header className="app-header">
+          <div className="brand-block">
+            <div className="brand-title">
+              <h1>SkillMatch AI</h1>
+              <p className="brand-tagline">Resume analysis and role fit</p>
+            </div>
+            <label className="role-context">
+              Target role
+              <select value={roleId} onChange={(event) => setRoleId(event.target.value)}>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="header-actions">
+            <span className="session-meta">
+              {user.name}
+              <span className="session-meta-role">{user.role.replace("_", " ")}</span>
+            </span>
+            <button className="icon-text-button" type="button" onClick={logout}>
+              <LogOut aria-hidden="true" />
+              Sign out
+            </button>
+          </div>
+        </header>
 
-      <section className="main-product">
-        <AppHeader user={user}>
-          <label className="role-context">
-            Role Context
-            <select value={roleId} onChange={(event) => setRoleId(event.target.value)}>
-              {roles.map((role) => (
-                <option key={role.id} value={role.id}>
-                  {role.title}
-                </option>
-              ))}
-            </select>
-          </label>
-        </AppHeader>
+        <nav className="top-nav" aria-label="Sections">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                className={`top-nav-item ${view === item.id ? "active" : ""}`}
+                key={item.id}
+                type="button"
+                onClick={() => setView(item.id)}
+              >
+                <Icon aria-hidden="true" />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <section className="main-product">
 
         {view === "dashboard" ? (
           <>
             <section className="concept-grid">
               <section className="concept-panel upload-panel">
-                <h2>1. Upload Resumes</h2>
+                <h2>Upload resumes</h2>
                 <div
                   className="drop-zone"
                   onDrop={(event) => {
@@ -288,7 +326,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   ))}
                 </ul>
                 <div className="role-facts">
-                  <h3>2. Target Internal Role</h3>
+                  <h3>Role context</h3>
                   <p>Job Family: {selectedRole.family}</p>
                   <p>Business Unit: {selectedRole.department}</p>
                   <p>Level: {selectedRole.level}</p>
@@ -339,15 +377,6 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 <RecentCandidates candidates={candidates} onSelect={setSelectedCandidateId} />
               </aside>
             </section>
-            <BottomPanels
-              user={user}
-              selectedRole={selectedRole}
-              workforceGaps={workforceGaps}
-              isUploading={isUploading}
-              files={files}
-              notice={notice}
-              failureCount={failures.length}
-            />
           </>
         ) : null}
 
@@ -422,15 +451,31 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 ))}
               </div>
             </section>
-            <BottomPanels
-              user={user}
-              selectedRole={selectedRole}
-              workforceGaps={workforceGaps}
-              isUploading={isUploading}
-              files={files}
-              notice={notice}
-              failureCount={failures.length}
-            />
+            <section className="concept-panel">
+              <div className="panel-heading">
+                <h2>Common skill gaps</h2>
+                <span>{selectedRole.title}</span>
+              </div>
+              <p className="panel-lead">
+                Aggregated missing skills from recent analyses (when available).
+              </p>
+              <div className="gap-bars">
+                {(workforceGaps.length
+                  ? workforceGaps
+                  : selectedRole.requiredSkills.slice(0, 5).map((skill, index) => [skill, 5 - index] as [string, number])
+                ).map(([skill, count]) => (
+                  <div key={skill}>
+                    <span>{skill}</span>
+                    <meter value={Number(count)} min={0} max={Math.max(files.length, candidates.length, 5)} />
+                    <strong>{Number(count)}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="system-health-inline">
+                <Activity aria-hidden="true" />
+                <span>Processing queue: {isUploading ? files.length : 0} job(s)</span>
+              </div>
+            </section>
           </section>
         ) : null}
 
@@ -464,7 +509,8 @@ export default function Dashboard({ user }: { user: SessionUser }) {
             </section>
           </section>
         ) : null}
-      </section>
+        </section>
+      </div>
     </main>
   );
 }
@@ -524,33 +570,51 @@ function RoleSkillGapChart({
   items: SkillGapChartItem[];
   roleTitle: string;
 }) {
+  const chartW = 560;
+  const barX = 208;
+  const barW = 260;
+  const metaX = 548;
   const chartHeight = Math.max(items.length * 42 + 28, 180);
 
   if (!items.length) {
-    return null;
+    return (
+      <section
+        className="skill-gap-chart-panel skill-gap-chart-panel--empty"
+        aria-labelledby="skill-gap-chart-title"
+      >
+        <div className="panel-heading">
+          <h3 id="skill-gap-chart-title">Role Skill-Gap Chart</h3>
+        </div>
+        <p className="chart-caption">
+          Upload a resume and run analysis to see skill coverage for {roleTitle}.
+        </p>
+        <div className="chart-placeholder" />
+      </section>
+    );
   }
 
   return (
     <section className="skill-gap-chart-panel" aria-labelledby="skill-gap-chart-title">
       <div className="panel-heading">
         <h3 id="skill-gap-chart-title">Role Skill-Gap Chart</h3>
-        <span>{candidateName ?? "Awaiting resume"}</span>
+        <span>{candidateName ?? "Candidate"}</span>
       </div>
       <p className="chart-caption">
-        {candidateName
-          ? `${candidateName}'s coverage for ${roleTitle}. Required skill gaps show lower coverage than preferred gaps.`
-          : `Select a candidate to compare skills against ${roleTitle}.`}
+        {`${candidateName ?? "Candidate"}'s coverage for ${roleTitle}. Green bars are matched skills; shorter bars are gaps (required vs preferred).`}
       </p>
-      <figure className="skill-gap-chart-figure">
+      <figure
+        className="skill-gap-chart-figure"
+        aria-label={`${roleTitle} skill coverage chart`}
+      >
         <svg
           aria-labelledby="skill-gap-chart-title"
           className="skill-gap-chart"
           role="img"
-          viewBox={`0 0 420 ${chartHeight}`}
+          viewBox={`0 0 ${chartW} ${chartHeight}`}
         >
           {items.map((item, index) => {
             const y = 18 + index * 42;
-            const fillWidth = Math.max(26, Math.round((item.coverage / 100) * 190));
+            const fillWidth = Math.max(36, Math.round((item.coverage / 100) * barW));
             const barClassName = [
               "chart-bar-fill",
               item.status === "matched" ? "is-matched" : "",
@@ -564,9 +628,9 @@ function RoleSkillGapChart({
                 <text className="chart-skill-label" x="0" y="14">
                   {item.skill}
                 </text>
-                <rect className="chart-bar-track" height="14" rx="7" ry="7" width="190" x="176" y="0" />
-                <rect className={barClassName} height="14" rx="7" ry="7" width={fillWidth} x="176" y="0" />
-                <text className="chart-meta-label" x="378" y="12">
+                <rect className="chart-bar-track" height="14" rx="7" ry="7" width={barW} x={barX} y="0" />
+                <rect className={barClassName} height="14" rx="7" ry="7" width={fillWidth} x={barX} y="0" />
+                <text className="chart-meta-label" x={metaX} y="12">
                   {item.status === "matched" ? "Matched" : item.importance}
                 </text>
               </g>
@@ -588,15 +652,6 @@ function RoleSkillGapChart({
           </span>
         </figcaption>
       </figure>
-      <ul className="chart-detail-list" aria-label={`${roleTitle} skill coverage details`}>
-        {items.map((item) => (
-          <li key={item.skill}>
-            <span>{item.skill}</span>
-            <small>{item.source === "required" ? "Required" : "Preferred"}</small>
-            <strong>{item.status === "matched" ? "Matched" : item.importance}</strong>
-          </li>
-        ))}
-      </ul>
     </section>
   );
 }
@@ -656,81 +711,6 @@ function RecentCandidates({ candidates, onSelect }: { candidates: CandidateAnaly
       ) : (
         <p className="list-placeholder">No analyses yet.</p>
       )}
-    </section>
-  );
-}
-
-function BottomPanels({
-  user,
-  selectedRole,
-  workforceGaps,
-  isUploading,
-  files,
-  notice,
-  failureCount
-}: {
-  user: SessionUser;
-  selectedRole: (typeof roles)[number];
-  workforceGaps: Array<[string, number]>;
-  isUploading: boolean;
-  files: File[];
-  notice: string;
-  failureCount: number;
-}) {
-  const uploadStatus = isUploading ? "Processing upload" : files.length ? "Ready to upload" : "Idle";
-
-  return (
-    <section className="bottom-grid">
-      <section className="concept-panel audit-log-panel">
-        <h2>Recruiter / Admin Audit Snapshot</h2>
-        <div className="audit-log-table">
-          <div className="audit-log-row head">
-            <span>Date & Time</span>
-            <span>Action</span>
-            <span>User</span>
-            <span>Status</span>
-          </div>
-          <div className="audit-log-row">
-            <span>Current session</span>
-            <span>Recommendation generation</span>
-            <span>{user.email}</span>
-            <span className="status-chip">Compliant</span>
-          </div>
-          <div className="audit-log-row">
-            <span>Current session</span>
-            <span>RBAC session active</span>
-            <span>{user.role.replace("_", " ")}</span>
-            <span className="status-chip">Protected</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="concept-panel workforce-panel">
-        <div className="panel-heading">
-          <h2>Workforce Gap Report</h2>
-          <span>{selectedRole.title}</span>
-        </div>
-        {workforceGaps.length ? (
-          <div className="gap-bars">
-            {workforceGaps.map(([skill, count]) => (
-              <div key={skill}>
-                <span>{skill}</span>
-                <meter value={Number(count)} min={0} max={Math.max(files.length, 5)} />
-                <strong>{Number(count)}</strong>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="list-placeholder">
-            Workforce gaps will populate as candidates are analysed against this role.
-          </p>
-        )}
-        <div className="system-health">
-          <span>Upload status: {uploadStatus}</span>
-          <span>Files queued: {files.length}</span>
-          <span>{notice || `Failed files: ${failureCount}`}</span>
-        </div>
-      </section>
     </section>
   );
 }

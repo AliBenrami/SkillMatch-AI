@@ -7,3 +7,6 @@ npm-debug.log*
 *.tsbuildinfo
 .vercel
 .DS_Store
+test-results
+playwright-report
+ui-review-screenshots
