@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { users } from "@/db/schema";
 import { getDatabase } from "./database";
+import { getAuthConfig } from "./env";
 import { sessionUserSchema, signupRequestSchema, userRoleSchema, type UserRole } from "./validation";
 
 export type SessionUser = {
@@ -53,7 +54,7 @@ function verifyPasswordHash(password: string, passwordHash: string) {
 }
 
 export function getCredentialUsers() {
-  const configuredUsers = process.env.AUTH_USERS_JSON;
+  const configuredUsers = getAuthConfig(process.env, { requireUsers: true }).usersJson;
   if (!configuredUsers) {
     return fallbackCredentialUsers;
   }
