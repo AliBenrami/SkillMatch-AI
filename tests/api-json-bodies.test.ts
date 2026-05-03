@@ -1,12 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockSetSessionUser = vi.fn();
-const mockGetSessionUser = vi.fn();
-const mockCanAccess = vi.fn();
-const mockVerifyCredentials = vi.fn();
-const mockAppendAuditEvent = vi.fn();
-const mockSaveAnalysis = vi.fn();
-const mockAnalyzeResume = vi.fn();
+const {
+  mockSetSessionUser,
+  mockGetSessionUser,
+  mockCanAccess,
+  mockVerifyCredentials,
+  mockAppendAuditEvent,
+  mockSaveAnalysis,
+  mockAnalyzeResume
+} = vi.hoisted(() => ({
+  mockSetSessionUser: vi.fn(),
+  mockGetSessionUser: vi.fn(),
+  mockCanAccess: vi.fn(),
+  mockVerifyCredentials: vi.fn(),
+  mockAppendAuditEvent: vi.fn(),
+  mockSaveAnalysis: vi.fn(),
+  mockAnalyzeResume: vi.fn()
+}));
 
 vi.mock("@/lib/auth", () => ({
   setSessionUser: mockSetSessionUser,
