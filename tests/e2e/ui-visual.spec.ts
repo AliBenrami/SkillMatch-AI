@@ -33,14 +33,14 @@ test("captures auth and dashboard screens for visual review", async ({ page, bro
 
   await page.context().clearCookies();
   await page.goto("/login");
-  await expect(page.getByRole("heading", { name: "Secure sign in" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Talent Match sign in" })).toBeVisible();
   await page.screenshot({
     path: path.join(shotDir, `01-login-${tag}.png`),
     fullPage: true
   });
 
   await page.goto("/signup");
-  await expect(page.getByRole("heading", { name: "Create account" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create Talent Match account" })).toBeVisible();
   await page.screenshot({
     path: path.join(shotDir, `02-signup-${tag}.png`),
     fullPage: true

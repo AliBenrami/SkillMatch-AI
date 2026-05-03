@@ -46,7 +46,7 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
   await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
   await page.getByLabel("Password").fill("SkillMatchDemo!23");
   await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expect(page.getByRole("heading", { name: "Talent Match Console" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
 
   await uploadInput.setInputFiles(resumePath);
   await uploadInput.setInputFiles(resumePath);
@@ -79,7 +79,7 @@ test("keeps failed upload state visible after processing", async ({ page }) => {
   await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
   await page.getByLabel("Password").fill("SkillMatchDemo!23");
   await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expect(page.getByRole("heading", { name: "Talent Match Console" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeDisabled();
 
   await uploadInput.setInputFiles(shortResumePath);
