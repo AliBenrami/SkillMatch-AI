@@ -1,5 +1,5 @@
-import { desc } from "drizzle-orm";
-import { analyses, auditEvents, candidateRecommendations } from "@/db/schema";
+import { and, desc, eq } from "drizzle-orm";
+import { analyses, auditEvents, candidateRecommendations, savedTargetRoles } from "@/db/schema";
 import { getDatabase } from "./database";
 import type { CandidateAnalysis, SkillMatchResult } from "./skillmatch";
 
@@ -16,6 +16,7 @@ export type AnalysisRecord = {
 const memoryStore: AnalysisRecord[] = [];
 const memoryCandidates: CandidateAnalysis[] = [];
 const memoryAuditEvents: AuditEvent[] = [];
+const memorySavedTargetRoles: SavedTargetRole[] = [];
 
 export type AuditEvent = {
   id: string;
@@ -25,6 +26,32 @@ export type AuditEvent = {
   details: Record<string, unknown>;
   createdAt: string;
 };
+
+export type SavedTargetRole = {
+  id: string;
+  employeeEmail: string;
+  roleId: string;
+  roleTitle: string;
+  targetScore: number;
+  currentScore: number | null;
+  matchedSkills: string[];
+  missingSkills: string[];
+  progressPercent: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function clampScore(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function calculateProgress(currentScore: number | null, targetScore: number) {
+  if (currentScore === null) {
+    return 0;
+  }
+
+  return clampScore((currentScore / targetScore) * 100, 0, 100);
+}
 
 export async function saveAnalysis(input: {
   employeeName: string;
@@ -230,4 +257,138 @@ export async function listAnalyses() {
     missingSkills: row.missingSkills,
     createdAt: row.createdAt.toISOString()
   })) satisfies AnalysisRecord[];
+}
+
+export async function listSavedTargetRoles(employeeEmail: string) {
+  const db = getDatabase();
+  if (!db) {
+    return memorySavedTargetRoles
+      .filter((role) => role.employeeEmail === employeeEmail)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  const rows = await db
+    .select({
+      id: savedTargetRoles.id,
+      employeeEmail: savedTargetRoles.employeeEmail,
+      roleId: savedTargetRoles.roleId,
+      roleTitle: savedTargetRoles.roleTitle,
+      targetScore: savedTargetRoles.targetScore,
+      currentScore: savedTargetRoles.currentScore,
+      matchedSkills: savedTargetRoles.matchedSkills,
+      missingSkills: savedTargetRoles.missingSkills,
+      progressPercent: savedTargetRoles.progressPercent,
+      createdAt: savedTargetRoles.createdAt,
+      updatedAt: savedTargetRoles.updatedAt
+    })
+    .from(savedTargetRoles)
+    .where(eq(savedTargetRoles.employeeEmail, employeeEmail))
+    .orderBy(desc(savedTargetRoles.updatedAt));
+
+  return rows.map((row) => ({
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString()
+  })) satisfies SavedTargetRole[];
+}
+
+export async function saveTargetRole(input: {
+  employeeEmail: string;
+  roleId: string;
+  roleTitle: string;
+  targetScore?: number;
+  currentScore?: number | null;
+  matchedSkills?: string[];
+  missingSkills?: string[];
+}) {
+  const now = new Date().toISOString();
+  const targetScore = clampScore(input.targetScore ?? 80, 1, 100);
+  const currentScore = input.currentScore == null ? null : clampScore(input.currentScore, 0, 100);
+  const progressPercent = calculateProgress(currentScore, targetScore);
+  const existing = (await listSavedTargetRoles(input.employeeEmail)).find((role) => role.roleId === input.roleId);
+  const record: SavedTargetRole = {
+    id: existing?.id ?? crypto.randomUUID(),
+    employeeEmail: input.employeeEmail,
+    roleId: input.roleId,
+    roleTitle: input.roleTitle,
+    targetScore,
+    currentScore,
+    matchedSkills: input.matchedSkills ?? existing?.matchedSkills ?? [],
+    missingSkills: input.missingSkills ?? existing?.missingSkills ?? [],
+    progressPercent,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  };
+
+  const db = getDatabase();
+  if (!db) {
+    const index = memorySavedTargetRoles.findIndex(
+      (role) => role.employeeEmail === input.employeeEmail && role.roleId === input.roleId
+    );
+    if (index >= 0) {
+      memorySavedTargetRoles[index] = record;
+    } else {
+      memorySavedTargetRoles.unshift(record);
+    }
+    return record;
+  }
+
+  if (existing) {
+    await db
+      .update(savedTargetRoles)
+      .set({
+        roleTitle: record.roleTitle,
+        targetScore: record.targetScore,
+        currentScore: record.currentScore,
+        matchedSkills: record.matchedSkills,
+        missingSkills: record.missingSkills,
+        progressPercent: record.progressPercent,
+        updatedAt: new Date()
+      })
+      .where(and(eq(savedTargetRoles.employeeEmail, input.employeeEmail), eq(savedTargetRoles.roleId, input.roleId)));
+  } else {
+    await db.insert(savedTargetRoles).values({
+      id: record.id,
+      employeeEmail: record.employeeEmail,
+      roleId: record.roleId,
+      roleTitle: record.roleTitle,
+      targetScore: record.targetScore,
+      currentScore: record.currentScore,
+      matchedSkills: record.matchedSkills,
+      missingSkills: record.missingSkills,
+      progressPercent: record.progressPercent
+    });
+  }
+
+  await appendAuditEvent({
+    actor: input.employeeEmail,
+    action: "saved_target_role_upsert",
+    entityId: record.id,
+    details: { roleId: input.roleId, roleTitle: input.roleTitle, progressPercent }
+  });
+
+  return record;
+}
+
+export async function deleteSavedTargetRole(input: { employeeEmail: string; id: string }) {
+  const db = getDatabase();
+  if (!db) {
+    const index = memorySavedTargetRoles.findIndex(
+      (role) => role.employeeEmail === input.employeeEmail && role.id === input.id
+    );
+    if (index === -1) {
+      return false;
+    }
+    memorySavedTargetRoles.splice(index, 1);
+    return true;
+  }
+
+  await db
+    .delete(savedTargetRoles)
+    .where(and(eq(savedTargetRoles.employeeEmail, input.employeeEmail), eq(savedTargetRoles.id, input.id)));
+  return true;
+}
+
+export function resetSavedTargetRolesForTests() {
+  memorySavedTargetRoles.length = 0;
 }
