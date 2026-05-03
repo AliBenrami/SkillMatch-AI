@@ -50,7 +50,7 @@ export const matchingConfig: MatchingConfig = {
     compliance: ["regulatory compliance", "controls compliance"],
     "customer empathy": ["customer-first mindset", "customer focus", "customer focused"],
     dashboarding: ["dashboards", "dashboard development", "bi dashboards"],
-    decision making: ["decision-making", "prioritization"],
+    "decision making": ["decision-making", "prioritization"],
     docker: ["dockerized", "containers", "containerization"],
     excel: ["spreadsheets", "microsoft excel"],
     git: ["github", "gitlab", "version control"],
