@@ -93,7 +93,11 @@ export async function saveAnalysis(input: {
   employeeName: string;
   resumeText: string;
   result: SkillMatchResult;
+  recordAudit?: boolean;
+  auditActor?: string;
 }) {
+  const recordAudit = input.recordAudit !== false;
+  const auditActor = input.auditActor ?? input.employeeName;
   const record: AnalysisRecord = {
     id: crypto.randomUUID(),
     employeeName: input.employeeName,
@@ -122,12 +126,14 @@ export async function saveAnalysis(input: {
     explanation: input.result.explanation
   });
 
-  await db.insert(auditEvents).values({
-    actor: input.employeeName,
-    action: "recommendation_generation",
-    entityId: record.id,
-    details: { targetRole: input.result.role.title, score: input.result.score }
-  });
+  if (recordAudit) {
+    await db.insert(auditEvents).values({
+      actor: auditActor,
+      action: "recommendation_generation",
+      entityId: record.id,
+      details: { targetRole: input.result.role.title, score: input.result.score }
+    });
+  }
 
   return record;
 }
@@ -429,4 +435,8 @@ export async function deleteSavedTargetRole(input: { employeeEmail: string; id: 
 
 export function resetSavedTargetRolesForTests() {
   memorySavedTargetRoles.length = 0;
+}
+
+export function resetAnalysesForTests() {
+  memoryStore.length = 0;
 }
