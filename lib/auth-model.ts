@@ -2,13 +2,7 @@ import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { users } from "@/db/schema";
 import { getDatabase } from "./database";
-
-export type UserRole =
-  | "employee"
-  | "recruiter"
-  | "hiring_manager"
-  | "learning_development"
-  | "system_admin";
+import { sessionUserSchema, signupRequestSchema, userRoleSchema, type UserRole } from "./validation";
 
 export type SessionUser = {
   name: string;
@@ -47,10 +41,6 @@ export function createPasswordHash(password: string, salt = crypto.randomBytes(1
   return `scrypt$${salt}$${key}`;
 }
 
-function isUserRole(value: string): value is UserRole {
-  return ["employee", "recruiter", "hiring_manager", "learning_development", "system_admin"].includes(value);
-}
-
 function verifyPasswordHash(password: string, passwordHash: string) {
   const [algorithm, salt, storedKey] = passwordHash.split("$");
   if (algorithm !== "scrypt" || !salt || !storedKey) {
@@ -70,7 +60,7 @@ export function getCredentialUsers() {
 
   try {
     const parsed = JSON.parse(configuredUsers) as CredentialUser[];
-    return parsed.filter((user) => user.email && user.name && user.role && (user.password || user.passwordHash));
+    return parsed.filter((user) => sessionUserSchema.safeParse(user).success && (user.password || user.passwordHash));
   } catch {
     return [];
   }
@@ -91,7 +81,7 @@ export async function verifyCredentials(email: string, password: string): Promis
     return {
       name: databaseUser.name,
       email: databaseUser.email,
-      role: isUserRole(databaseUser.role) ? databaseUser.role : "employee"
+      role: userRoleSchema.catch("employee").parse(databaseUser.role)
     };
   }
 
@@ -129,21 +119,12 @@ export async function createCredentialUser(input: {
     throw new Error("Signup requires DATABASE_URL to be configured.");
   }
 
-  const name = input.name.trim();
-  const email = input.email.trim().toLowerCase();
-  const role = input.role && isUserRole(input.role) ? input.role : "employee";
-
-  if (name.length < 2) {
-    throw new Error("Enter your name.");
+  const parsed = signupRequestSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Invalid signup request.");
   }
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("Enter a valid email address.");
-  }
-
-  if (input.password.length < 10) {
-    throw new Error("Use a password with at least 10 characters.");
-  }
+  const { name, email, password, role } = parsed.data;
 
   const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
   if (existingUser) {
@@ -159,7 +140,7 @@ export async function createCredentialUser(input: {
   await db.insert(users).values({
     id: crypto.randomUUID(),
     ...user,
-    passwordHash: createPasswordHash(input.password)
+    passwordHash: createPasswordHash(password)
   });
 
   return user;

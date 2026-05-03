@@ -29,6 +29,12 @@ describe("skill matching engine", () => {
     expect(result.explanationDetails.earnedWeight).toBeGreaterThan(result.matchedSkills.length);
   });
 
+  it("falls back to a known role when an invalid role id is provided", () => {
+    const result = analyzeResume("TypeScript React JavaScript Node SQL Git testing", "not-a-role");
+
+    expect(result.role.id).toBe("sde-i");
+  });
+
   it("ranks good positions for each resume", () => {
     const recommendations = rankResumeForPositions(
       "Java engineer with AWS, SQL, REST API, Git, system design, Docker, and data structures experience."
