@@ -6,6 +6,7 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  BookmarkCheck,
   BookOpen,
   CheckCircle2,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Target,
   Trash2,
   UploadCloud,
   Users,
@@ -25,7 +27,7 @@ import {
 } from "lucide-react";
 import { roles } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
-import type { AnalysisRecord, AuditEvent } from "@/lib/db";
+import type { AnalysisRecord, AuditEvent, SavedTargetRole } from "@/lib/db";
 import type { CandidateAnalysis } from "@/lib/skillmatch";
 
 type UploadResponse = {
@@ -62,6 +64,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   const [files, setFiles] = useState<File[]>([]);
   const [candidates, setCandidates] = useState<CandidateAnalysis[]>([]);
   const [analyses, setAnalyses] = useState<AnalysisRecord[]>([]);
+  const [savedRoles, setSavedRoles] = useState<SavedTargetRole[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [failures, setFailures] = useState<UploadResponse["failures"]>([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
@@ -74,6 +77,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   const selectedRoleMatch = selectedCandidate?.topPositions.find((item) => item.role.id === roleId);
   const bestRecommendation = selectedRoleMatch ?? selectedCandidate?.topPositions[0];
   const selectedResult = selectedRoleMatch ?? bestRecommendation;
+  const savedCurrentRole = savedRoles.find((role) => role.roleId === roleId);
 
   const workforceGaps = useMemo(() => {
     const counts = new Map<string, number>();
@@ -118,9 +122,10 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
   const refreshRecords = useCallback(async () => {
     const auditRequest = user.role === "system_admin" ? fetch("/api/audit") : Promise.resolve(null);
-    const [candidateResponse, analysisResponse, auditResponse] = await Promise.all([
+    const [candidateResponse, analysisResponse, savedRolesResponse, auditResponse] = await Promise.all([
       fetch("/api/candidates"),
       fetch("/api/analyses"),
+      fetch("/api/saved-roles"),
       auditRequest
     ]);
 
@@ -133,6 +138,11 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     if (analysisResponse.ok) {
       const payload = (await analysisResponse.json()) as { analyses: AnalysisRecord[] };
       setAnalyses(payload.analyses);
+    }
+
+    if (savedRolesResponse.ok) {
+      const payload = (await savedRolesResponse.json()) as { savedRoles: SavedTargetRole[] };
+      setSavedRoles(payload.savedRoles);
     }
 
     if (auditResponse?.ok) {
@@ -211,6 +221,36 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     );
     setIsUploading(false);
     void refreshRecords();
+  }
+
+  async function saveCurrentTargetRole() {
+    const response = await fetch("/api/saved-roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roleId,
+        targetScore: 80,
+        currentScore: selectedResult?.score ?? null,
+        matchedSkills,
+        missingSkills: missingSkills.map((gap) => gap.skill)
+      })
+    });
+
+    if (!response.ok) {
+      setNotice("Could not save this target role.");
+      return;
+    }
+
+    const payload = (await response.json()) as { savedRole: SavedTargetRole };
+    setSavedRoles((current) => [payload.savedRole, ...current.filter((role) => role.id !== payload.savedRole.id)]);
+    setNotice(`${selectedRole.title} saved as a target role.`);
+  }
+
+  async function removeSavedRole(id: string) {
+    const response = await fetch(`/api/saved-roles?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (response.ok) {
+      setSavedRoles((current) => current.filter((role) => role.id !== id));
+    }
   }
 
   async function logout() {
@@ -373,6 +413,16 @@ export default function Dashboard({ user }: { user: SessionUser }) {
               </section>
 
               <aside className="right-stack">
+                <SavedTargetRolesPanel
+                  currentRoleSaved={Boolean(savedCurrentRole)}
+                  roles={savedRoles}
+                  onRemove={removeSavedRole}
+                  onSave={saveCurrentTargetRole}
+                  onSelect={(id) => {
+                    setRoleId(id);
+                    setView("learning");
+                  }}
+                />
                 <RecommendationPanel candidate={selectedCandidate} />
                 <RecentCandidates candidates={candidates} onSelect={setSelectedCandidateId} />
               </aside>
@@ -409,6 +459,11 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
         {view === "learning" ? (
           <section className="screen-stack">
+            <section className="metric-grid">
+              <Metric label="Saved target roles" value={savedRoles.length} />
+              <Metric label="Current role progress" value={savedCurrentRole ? `${savedCurrentRole.progressPercent}%` : "Not saved"} />
+              <Metric label="Target match score" value={savedCurrentRole ? `${savedCurrentRole.targetScore}%` : "80%"} />
+            </section>
             <section className="concept-panel">
               <div className="panel-heading">
                 <h2>Learning Recommendations</h2>
@@ -426,6 +481,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 ))}
               </div>
             </section>
+            <SavedRoleProgress roles={savedRoles} onRemove={removeSavedRole} onSelect={setRoleId} />
           </section>
         ) : null}
 
@@ -652,6 +708,102 @@ function RoleSkillGapChart({
           </span>
         </figcaption>
       </figure>
+    </section>
+  );
+}
+
+function SavedTargetRolesPanel({
+  currentRoleSaved,
+  roles,
+  onRemove,
+  onSave,
+  onSelect
+}: {
+  currentRoleSaved: boolean;
+  roles: SavedTargetRole[];
+  onRemove: (id: string) => void;
+  onSave: () => void;
+  onSelect: (roleId: string) => void;
+}) {
+  return (
+    <section className="concept-panel saved-target-panel">
+      <div className="panel-heading">
+        <h2>Saved Target Roles</h2>
+        <span>{roles.length}</span>
+      </div>
+      <button className="primary-action" type="button" onClick={onSave}>
+        <BookmarkCheck aria-hidden="true" />
+        {currentRoleSaved ? "Update target progress" : "Save current target"}
+      </button>
+      {roles.length ? (
+        <ul className="saved-role-list">
+          {roles.slice(0, 3).map((role) => (
+            <li key={role.id}>
+              <button type="button" onClick={() => onSelect(role.roleId)}>
+                <Target aria-hidden="true" />
+                <span>
+                  <strong>{role.roleTitle}</strong>
+                  <small>{role.currentScore === null ? "No score yet" : `${role.currentScore}% current match`}</small>
+                </span>
+                <em>{role.progressPercent}%</em>
+              </button>
+              <button
+                aria-label={`Remove ${role.roleTitle}`}
+                className="queue-icon-button"
+                onClick={() => onRemove(role.id)}
+                title={`Remove ${role.roleTitle}`}
+                type="button"
+              >
+                <X aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="list-placeholder">Save target roles to track skill progress over time.</p>
+      )}
+    </section>
+  );
+}
+
+function SavedRoleProgress({
+  roles,
+  onRemove,
+  onSelect
+}: {
+  roles: SavedTargetRole[];
+  onRemove: (id: string) => void;
+  onSelect: (roleId: string) => void;
+}) {
+  return (
+    <section className="concept-panel">
+      <div className="panel-heading">
+        <h2>Target Role Progress</h2>
+        <span>{roles.length ? "Employee plan" : "No saved targets"}</span>
+      </div>
+      {roles.length ? (
+        <div className="saved-progress-grid">
+          {roles.map((role) => (
+            <article key={role.id}>
+              <div>
+                <strong>{role.roleTitle}</strong>
+                <span>{role.missingSkills.length ? `${role.missingSkills.slice(0, 3).join(", ")} gaps` : "No tracked gaps"}</span>
+              </div>
+              <meter min={0} max={100} value={role.progressPercent} />
+              <em>{role.progressPercent}% to {role.targetScore}% goal</em>
+              <button className="icon-text-button" type="button" onClick={() => onSelect(role.roleId)}>
+                <Target aria-hidden="true" />
+                View learning
+              </button>
+              <button className="queue-icon-button" type="button" onClick={() => onRemove(role.id)} aria-label={`Remove ${role.roleTitle}`}>
+                <Trash2 aria-hidden="true" />
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <EmptyPanel title="No saved target roles" text="Save a role from the dashboard to start tracking employee progress." />
+      )}
     </section>
   );
 }
