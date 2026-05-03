@@ -1,5 +1,9 @@
 import mammoth from "mammoth";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { PDFParse } from "pdf-parse";
+
+PDFParse.setWorker(pathToFileURL(path.join(process.cwd(), "node_modules/pdf-parse/dist/worker/pdf.worker.mjs")).href);
 
 function cleanExtractedText(text: string) {
   return text
