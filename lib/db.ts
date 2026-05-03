@@ -13,9 +13,45 @@ export type AnalysisRecord = {
   createdAt: string;
 };
 
+export type CandidateRecommendationFilters = {
+  skills?: string[];
+  education?: string;
+  location?: string;
+  minYearsExperience?: number;
+};
+
 const memoryStore: AnalysisRecord[] = [];
 const memoryCandidates: CandidateAnalysis[] = [];
 const memoryAuditEvents: AuditEvent[] = [];
+
+function normalizeFilterValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+export function filterCandidateRecommendations(
+  candidates: CandidateAnalysis[],
+  filters: CandidateRecommendationFilters = {}
+) {
+  const requiredSkills = (filters.skills ?? []).map(normalizeFilterValue).filter(Boolean);
+  const education = filters.education ? normalizeFilterValue(filters.education) : "";
+  const location = filters.location ? normalizeFilterValue(filters.location) : "";
+  const minYearsExperience = filters.minYearsExperience;
+
+  return candidates.filter((candidate) => {
+    const structured = candidate.structured;
+    const candidateSkills = new Set(structured.skills.map(normalizeFilterValue));
+    const candidateEducation = structured.education.map(normalizeFilterValue);
+    const candidateLocation = structured.location ? normalizeFilterValue(structured.location) : "";
+
+    return (
+      requiredSkills.every((skill) => candidateSkills.has(skill)) &&
+      (!education || candidateEducation.some((item) => item.includes(education))) &&
+      (!location || candidateLocation.includes(location)) &&
+      (minYearsExperience === undefined ||
+        (structured.yearsExperience !== null && structured.yearsExperience >= minYearsExperience))
+    );
+  });
+}
 
 export type AuditEvent = {
   id: string;
@@ -139,11 +175,11 @@ export async function saveCandidateBatch(input: {
   return input.candidates;
 }
 
-export async function listCandidateRecommendations() {
+export async function listCandidateRecommendations(filters: CandidateRecommendationFilters = {}) {
   const db = getDatabase();
 
   if (!db) {
-    return memoryCandidates.slice(0, 20);
+    return filterCandidateRecommendations(memoryCandidates, filters).slice(0, 20);
   }
 
   const rows = await db
@@ -158,9 +194,9 @@ export async function listCandidateRecommendations() {
     })
     .from(candidateRecommendations)
     .orderBy(desc(candidateRecommendations.createdAt))
-    .limit(20);
+    .limit(100);
 
-  return rows.map((row) => ({
+  const candidates = rows.map((row) => ({
     id: row.id,
     candidateName: row.candidateName,
     fileName: row.fileName,
@@ -169,6 +205,8 @@ export async function listCandidateRecommendations() {
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
     createdAt: row.createdAt.toISOString()
   })) as CandidateAnalysis[];
+
+  return filterCandidateRecommendations(candidates, filters).slice(0, 20);
 }
 
 export async function listAuditEvents() {

@@ -48,6 +48,7 @@ export type StructuredResume = {
   skills: string[];
   yearsExperience: number | null;
   education: string[];
+  location: string | null;
   certifications: string[];
   biasMaskedText: string;
 };
@@ -103,6 +104,15 @@ const demographicMaskingRules: Array<[RegExp, string]> = [
     /\b(?:race|ethnicity|nationality|citizenship|marital status|veteran status|disability status|religion)\s*[:\-]?\s*[^\r\n,;]+/gi,
     "[demographic masked]"
   ]
+];
+
+const knownLocations = [
+  "Seattle, WA",
+  "Austin, TX",
+  "Dallas, TX",
+  "Arlington, VA",
+  "New York, NY",
+  "Remote"
 ];
 
 export function normalizeResumeText(text: string) {
@@ -168,11 +178,19 @@ export function extractStructuredResume(resumeText: string): StructuredResume {
     .flatMap((pattern) => resumeText.match(pattern) ?? [])
     .map((item) => item.trim())
     .filter((item, index, arr) => arr.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+  const explicitLocation =
+    resumeText.match(/\b(?:location|based in)\s*[:\-]?\s*([A-Za-z .'-]+,\s*[A-Z]{2}|remote)\b/i)?.[1]?.trim() ??
+    null;
+  const location =
+    explicitLocation ??
+    knownLocations.find((candidateLocation) => normalized.includes(normalizeResumeText(candidateLocation))) ??
+    null;
 
   return {
     skills: extractSkills(resumeText),
     yearsExperience: yearsMatch ? Number(yearsMatch[1]) : null,
     education,
+    location,
     certifications,
     biasMaskedText: maskDemographicSignals(resumeText)
   };
