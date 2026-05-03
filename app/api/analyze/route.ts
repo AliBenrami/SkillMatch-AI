@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { analyzeResume } from "@/lib/skillmatch";
 import { saveAnalysis } from "@/lib/db";
-import { analyzeRequestSchema, parseJsonRequest } from "@/lib/validation";
+import { analyzeRequestSchema, parseJsonRequestBody } from "@/lib/validation";
 
 export async function POST(request: Request) {
-  const { data, error } = parseJsonRequest(analyzeRequestSchema, await request.json());
+  const { data, error } = await parseJsonRequestBody(analyzeRequestSchema, request);
   if (!data) {
     return NextResponse.json({ error }, { status: 400 });
   }
