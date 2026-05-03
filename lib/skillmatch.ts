@@ -88,6 +88,23 @@ const certificationPatterns = [
   /scrum master/gi
 ];
 
+const demographicMaskingRules: Array<[RegExp, string]> = [
+  [/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\s*$/gm, "[name masked]"],
+  [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email masked]"],
+  [/\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g, "[phone masked]"],
+  [
+    /\b(?:age|dob|date of birth)\s*[:\-]?\s*(?:\d{1,3}|\d{1,2}\/\d{1,2}\/\d{2,4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4})\b/gi,
+    "[age masked]"
+  ],
+  [/\b\d{1,3}\s*(?:years old|yrs old|y\/o)\b/gi, "[age masked]"],
+  [/\b(?:gender|sex)\s*[:\-]?\s*(?:female|male|woman|man|non[-\s]?binary|trans(?:gender)?|prefer not to say)\b/gi, "[gender masked]"],
+  [/\bpronouns?\s*[:\-]?\s*[a-z]+\/[a-z]+\b/gi, "[pronouns masked]"],
+  [
+    /\b(?:race|ethnicity|nationality|citizenship|marital status|veteran status|disability status|religion)\s*[:\-]?\s*[^\r\n,;]+/gi,
+    "[demographic masked]"
+  ]
+];
+
 export function normalizeResumeText(text: string) {
   return text
     .toLowerCase()
@@ -122,11 +139,10 @@ function findEvidenceSnippet(resumeText: string, terms: string[]) {
 }
 
 export function maskDemographicSignals(text: string) {
-  return text
-    .replace(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\s*$/gm, "[name masked]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email masked]")
-    .replace(/\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g, "[phone masked]")
-    .replace(/\b(?:age|dob|date of birth)\s*[:\-]?\s*\d{1,2}\/\d{1,2}\/\d{2,4}\b/gi, "[age masked]");
+  return demographicMaskingRules.reduce(
+    (maskedText, [pattern, replacement]) => maskedText.replace(pattern, replacement),
+    text
+  );
 }
 
 export function extractSkills(resumeText: string) {

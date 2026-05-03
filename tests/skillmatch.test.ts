@@ -99,4 +99,58 @@ describe("skill matching engine", () => {
     expect(analysis.structured.certifications.join(" ")).toMatch(/AWS Certified|Cloud Practitioner/i);
     expect(maskDemographicSignals(analysis.structured.biasMaskedText)).toContain("[email masked]");
   });
+
+  it("masks explicit demographic fields beyond contact details", () => {
+    const masked = maskDemographicSignals(
+      [
+        "Jamie Doe",
+        "jamie@example.com",
+        "312-555-0199",
+        "Gender: Female",
+        "Pronouns: she/her",
+        "Race: Asian",
+        "Nationality: Canadian",
+        "Age: 29",
+        "Veteran Status: Protected Veteran"
+      ].join("\n")
+    );
+
+    expect(masked).toContain("[name masked]");
+    expect(masked).toContain("[email masked]");
+    expect(masked).toContain("[phone masked]");
+    expect(masked).toContain("[gender masked]");
+    expect(masked).toContain("[pronouns masked]");
+    expect(masked).toContain("[demographic masked]");
+    expect(masked).toContain("[age masked]");
+    expect(masked).not.toMatch(/\bFemale|Asian|Canadian|29|Protected Veteran|she\/her\b/);
+  });
+
+  it("keeps scoring stable across equivalent resumes with different demographic details", () => {
+    const sharedExperience =
+      "Backend engineer with 6 years experience building TypeScript, React, Node, SQL, Git, AWS, CI/CD, and REST API systems.";
+    const resumeA = [
+      "Jordan Lee",
+      "Gender: Female",
+      "Pronouns: she/her",
+      "Race: Asian",
+      "Age: 29",
+      sharedExperience
+    ].join("\n");
+    const resumeB = [
+      "Jordan Lee",
+      "Gender: Male",
+      "Pronouns: he/him",
+      "Race: Black",
+      "Age: 46",
+      sharedExperience
+    ].join("\n");
+
+    const resultA = analyzeResume(resumeA, "sde-ii");
+    const resultB = analyzeResume(resumeB, "sde-ii");
+
+    expect(resultA.score).toBe(resultB.score);
+    expect(resultA.matchedSkills).toEqual(resultB.matchedSkills);
+    expect(resultA.missingSkills).toEqual(resultB.missingSkills);
+    expect(resultA.explanationDetails.earnedWeight).toBe(resultB.explanationDetails.earnedWeight);
+  });
 });

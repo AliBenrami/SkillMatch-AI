@@ -1,10 +1,13 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
+import { getDatabaseConfig } from "./env";
 
 export function getDatabase() {
-  if (!process.env.DATABASE_URL) {
+  const { url } = getDatabaseConfig();
+
+  if (!url) {
     return null;
   }
 
-  return drizzle(neon(process.env.DATABASE_URL));
+  return drizzle(neon(url));
 }
