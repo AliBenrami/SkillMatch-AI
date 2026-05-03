@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { saveCandidateBatch } from "@/lib/db";
+import { saveAnalysis, saveCandidateBatch } from "@/lib/db";
 import { extractResumeText } from "@/lib/resume-parser";
-import { analyzeCandidateResume } from "@/lib/skillmatch";
+import { analyzeCandidateResume, type CandidateAnalysis } from "@/lib/skillmatch";
 import { storeResumeFile } from "@/lib/storage";
 
 const maxFiles = 12;
@@ -35,6 +35,7 @@ export async function POST(request: Request) {
   }
 
   const candidates = [];
+  const uploadOutputs: { candidate: CandidateAnalysis; resumeText: string }[] = [];
   const failures = [];
 
   for (const file of files) {
@@ -57,13 +58,13 @@ export async function POST(request: Request) {
         contentType: file.type || "application/octet-stream",
         bytes: parsed.bytes
       });
-      candidates.push(
-        analyzeCandidateResume({
-          fileName: file.name,
-          resumeText: parsed.text,
-          storageUrl: stored.url
-        })
-      );
+      const candidate = analyzeCandidateResume({
+        fileName: file.name,
+        resumeText: parsed.text,
+        storageUrl: stored.url
+      });
+      candidates.push(candidate);
+      uploadOutputs.push({ candidate, resumeText: parsed.text });
     } catch (error) {
       failures.push({
         fileName: file.name,
@@ -74,6 +75,17 @@ export async function POST(request: Request) {
 
   if (candidates.length) {
     await saveCandidateBatch({ actor: user.email, candidates });
+    for (const { candidate, resumeText } of uploadOutputs) {
+      const best = candidate.topPositions[0];
+      if (best) {
+        await saveAnalysis({
+          employeeName: candidate.candidateName,
+          resumeText,
+          result: best,
+          recordAudit: false
+        });
+      }
+    }
   }
 
   return NextResponse.json({ candidates, failures });
