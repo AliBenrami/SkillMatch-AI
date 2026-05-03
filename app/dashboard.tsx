@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
-  Activity,
   AlertTriangle,
   BarChart3,
   BookOpen,
@@ -340,7 +339,15 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 <RecentCandidates candidates={candidates} onSelect={setSelectedCandidateId} />
               </aside>
             </section>
-            <BottomPanels user={user} selectedRole={selectedRole} workforceGaps={workforceGaps} isUploading={isUploading} files={files} />
+            <BottomPanels
+              user={user}
+              selectedRole={selectedRole}
+              workforceGaps={workforceGaps}
+              isUploading={isUploading}
+              files={files}
+              notice={notice}
+              failureCount={failures.length}
+            />
           </>
         ) : null}
 
@@ -415,7 +422,15 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 ))}
               </div>
             </section>
-            <BottomPanels user={user} selectedRole={selectedRole} workforceGaps={workforceGaps} isUploading={isUploading} files={files} />
+            <BottomPanels
+              user={user}
+              selectedRole={selectedRole}
+              workforceGaps={workforceGaps}
+              isUploading={isUploading}
+              files={files}
+              notice={notice}
+              failureCount={failures.length}
+            />
           </section>
         ) : null}
 
@@ -650,14 +665,20 @@ function BottomPanels({
   selectedRole,
   workforceGaps,
   isUploading,
-  files
+  files,
+  notice,
+  failureCount
 }: {
   user: SessionUser;
   selectedRole: (typeof roles)[number];
   workforceGaps: Array<[string, number]>;
   isUploading: boolean;
   files: File[];
+  notice: string;
+  failureCount: number;
 }) {
+  const uploadStatus = isUploading ? "Processing upload" : files.length ? "Ready to upload" : "Idle";
+
   return (
     <section className="bottom-grid">
       <section className="concept-panel audit-log-panel">
@@ -705,10 +726,9 @@ function BottomPanels({
           </p>
         )}
         <div className="system-health">
-          <Activity aria-hidden="true" />
-          <span>API healthy</span>
-          <span>Queue backlog: {isUploading ? files.length : 0}</span>
-          <span>Retry policy: enabled</span>
+          <span>Upload status: {uploadStatus}</span>
+          <span>Files queued: {files.length}</span>
+          <span>{notice || `Failed files: ${failureCount}`}</span>
         </div>
       </section>
     </section>
