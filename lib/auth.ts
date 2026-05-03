@@ -1,10 +1,10 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import type { SessionUser } from "./auth-model";
+import { getAuthConfig } from "./env";
 import { sessionUserSchema, signedSessionPayloadSchema } from "./validation";
 
 const cookieName = "skillmatch_session";
-const localDemoSecret = "skillmatch-ai-local-demo-secret";
 const sessionMaxAgeSeconds = 60 * 60 * 8;
 
 type SignedSessionPayload = SessionUser & {
@@ -13,37 +13,7 @@ type SignedSessionPayload = SessionUser & {
 };
 
 function secret() {
-  const configuredSecret = process.env.AUTH_SECRET?.trim() || process.env.BETTER_AUTH_SECRET?.trim();
-
-  if (configuredSecret) {
-    if (!allowsLocalDemoSecret() && !isStrongSecret(configuredSecret)) {
-      throw new Error("AUTH_SECRET must be a strong random value of at least 32 characters in production.");
-    }
-
-    return configuredSecret;
-  }
-
-  if (!allowsLocalDemoSecret()) {
-    throw new Error("AUTH_SECRET or BETTER_AUTH_SECRET must be set to a strong random value in production.");
-  }
-
-  return localDemoSecret;
-}
-
-function allowsLocalDemoSecret() {
-  return process.env.NODE_ENV !== "production";
-}
-
-function isStrongSecret(value: string) {
-  const weakSecrets = new Set([
-    localDemoSecret,
-    "replace-with-a-long-random-secret",
-    "changeme",
-    "password",
-    "secret"
-  ]);
-
-  return value.length >= 32 && new Set(value).size >= 8 && !weakSecrets.has(value.toLowerCase());
+  return getAuthConfig(process.env, { requireUsers: false }).secret;
 }
 
 function sign(payload: string) {
