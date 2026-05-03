@@ -18,7 +18,7 @@ export default defineConfig({
       DATABASE_URL: ""
     },
     url: "http://127.0.0.1:3000/login",
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.PW_REUSE_SERVER === "1",
     timeout: 30_000
   },
   projects: [
