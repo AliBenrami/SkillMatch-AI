@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { bigserial, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import type { ResumeAiInsight } from "@/lib/resume-ai-insight";
 
 export const users = pgTable(
   "users",
@@ -57,6 +58,7 @@ export const candidateRecommendations = pgTable(
     storageUrl: text("storage_url").notNull(),
     structuredResume: jsonb("structured_resume").notNull(),
     topPositions: jsonb("top_positions").notNull(),
+    aiInsight: jsonb("ai_insight").$type<ResumeAiInsight | null>(),
     bestRoleTitle: text("best_role_title").notNull(),
     bestScore: integer("best_score").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
