@@ -913,8 +913,8 @@ function AiInsightPanel({ insight }: { insight: CandidateAnalysis["aiInsight"] }
         </div>
       ) : (
         <p className="list-placeholder">
-          Configure <code>OPENAI_API_KEY</code> (or <code>RESUME_AI_API_KEY</code>) on the server to generate a structured
-          narrative after each upload. Skill matching above still runs without it.
+          Configure <code>GEMINI_API_KEY</code> (Google AI Studio) on the server to generate a structured narrative after
+          each upload. Skill matching above still runs without it.
         </p>
       )}
     </section>

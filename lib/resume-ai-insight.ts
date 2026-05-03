@@ -16,20 +16,23 @@ export type ResumeAiInsightConfig = {
   baseUrl: string;
 };
 
-const defaultBaseUrl = "https://api.openai.com/v1";
+const defaultGeminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta";
 
 export function getResumeAiInsightConfig(env: NodeJS.ProcessEnv = process.env): ResumeAiInsightConfig | null {
-  const apiKey = env.OPENAI_API_KEY?.trim() || env.RESUME_AI_API_KEY?.trim();
+  const apiKey =
+    env.GEMINI_API_KEY?.trim() ||
+    env.GOOGLE_API_KEY?.trim() ||
+    env.RESUME_AI_API_KEY?.trim();
   if (!apiKey) {
     return null;
   }
 
-  const model = env.RESUME_AI_MODEL?.trim() || "gpt-4o-mini";
-  const baseUrl = (
-    env.OPENAI_BASE_URL?.trim() ||
-    env.RESUME_AI_BASE_URL?.trim() ||
-    defaultBaseUrl
-  ).replace(/\/$/, "");
+  const model =
+    env.GEMINI_MODEL?.trim() ||
+    env.RESUME_AI_MODEL?.trim() ||
+    "gemini-2.0-flash";
+
+  const baseUrl = (env.GEMINI_BASE_URL?.trim() || defaultGeminiBaseUrl).replace(/\/$/, "");
 
   return { apiKey, model, baseUrl };
 }
@@ -47,6 +50,12 @@ function extractJsonObject(raw: string): unknown {
     throw new Error("No JSON object in model response");
   }
 }
+
+type GeminiGenerateContentResponse = {
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string }> };
+  }>;
+};
 
 export async function generateResumeAiInsight(input: {
   config: ResumeAiInsightConfig;
@@ -70,21 +79,20 @@ export async function generateResumeAiInsight(input: {
     resumeText: trimmedResume
   });
 
-  const response = await fetch(`${input.config.baseUrl}/chat/completions`, {
+  const endpoint = `${input.config.baseUrl}/models/${encodeURIComponent(input.config.model)}:generateContent`;
+  const url = `${endpoint}?key=${encodeURIComponent(input.config.apiKey)}`;
+
+  const response = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${input.config.apiKey}`,
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: input.config.model,
-      temperature: 0.25,
-      max_tokens: 1400,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userPayload }
-      ]
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: userPayload }] }],
+      generationConfig: {
+        temperature: 0.25,
+        maxOutputTokens: 2048,
+        responseMimeType: "application/json"
+      }
     })
   });
 
@@ -92,10 +100,8 @@ export async function generateResumeAiInsight(input: {
     return null;
   }
 
-  const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = payload.choices?.[0]?.message?.content;
+  const payload = (await response.json()) as GeminiGenerateContentResponse;
+  const content = payload.candidates?.[0]?.content?.parts?.[0]?.text;
   if (typeof content !== "string") {
     return null;
   }
