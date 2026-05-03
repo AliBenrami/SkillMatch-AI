@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { setSessionUser } from "@/lib/auth";
 import { verifyCredentials } from "@/lib/auth-model";
 import { appendAuditEvent } from "@/lib/db";
-import { loginRequestSchema, parseJsonRequest } from "@/lib/validation";
+import { loginRequestSchema, parseJsonRequestBody } from "@/lib/validation";
 
 async function appendLoginAuditEvent(input: {
   actor: string;
@@ -18,8 +18,16 @@ async function appendLoginAuditEvent(input: {
 
 export async function POST(request: Request) {
   try {
-    const { data, error } = parseJsonRequest(loginRequestSchema, await request.json());
+    const { data, error } = await parseJsonRequestBody(loginRequestSchema, request);
     if (!data) {
+      if (error === "Malformed JSON body.") {
+        await appendLoginAuditEvent({
+          actor: "anonymous",
+          action: "failed_login",
+          details: { reason: "malformed_json" }
+        });
+      }
+
       return NextResponse.json({ error }, { status: 400 });
     }
 
