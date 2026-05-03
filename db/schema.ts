@@ -67,3 +67,33 @@ export const candidateRecommendations = pgTable(
     check("candidate_recommendations_best_score_check", sql`${table.bestScore} >= 0 and ${table.bestScore} <= 100`)
   ]
 );
+
+export const savedTargetRoles = pgTable(
+  "saved_target_roles",
+  {
+    id: uuid("id").primaryKey(),
+    employeeEmail: text("employee_email").notNull(),
+    roleId: text("role_id").notNull(),
+    roleTitle: text("role_title").notNull(),
+    targetScore: integer("target_score").notNull().default(80),
+    currentScore: integer("current_score"),
+    matchedSkills: jsonb("matched_skills").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    missingSkills: jsonb("missing_skills").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    progressPercent: integer("progress_percent").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex("saved_target_roles_employee_role_idx").on(table.employeeEmail, table.roleId),
+    index("saved_target_roles_employee_idx").on(table.employeeEmail),
+    check("saved_target_roles_target_score_check", sql`${table.targetScore} >= 1 and ${table.targetScore} <= 100`),
+    check(
+      "saved_target_roles_current_score_check",
+      sql`${table.currentScore} is null or (${table.currentScore} >= 0 and ${table.currentScore} <= 100)`
+    ),
+    check(
+      "saved_target_roles_progress_percent_check",
+      sql`${table.progressPercent} >= 0 and ${table.progressPercent} <= 100`
+    )
+  ]
+);

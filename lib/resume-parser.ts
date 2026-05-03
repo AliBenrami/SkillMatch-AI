@@ -1,70 +1,35 @@
 import mammoth from "mammoth";
-import { inflateSync } from "node:zlib";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { PDFParse } from "pdf-parse";
 
-function decodePdfString(value: string) {
-  return value
-    .replace(/\\n/g, "\n")
-    .replace(/\\r/g, "\n")
-    .replace(/\\t/g, " ")
-    .replace(/\\\(/g, "(")
-    .replace(/\\\)/g, ")")
-    .replace(/\\\\/g, "\\");
+PDFParse.setWorker(pathToFileURL(path.join(process.cwd(), "node_modules/pdf-parse/dist/worker/pdf.worker.mjs")).href);
+
+function cleanExtractedText(text: string) {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n--\s+\d+\s+of\s+\d+\s+--\s*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-function decodePdfHex(value: string) {
-  const normalized = value.replace(/\s+/g, "");
-  return Buffer.from(normalized, "hex").toString("latin1");
-}
+async function extractTextFromPdfBytes(bytes: Uint8Array) {
+  const parser = new PDFParse({ data: Buffer.from(bytes) });
 
-function decodePdfTextToken(value: string) {
-  if (value.startsWith("(") && value.endsWith(")")) {
-    return decodePdfString(value.slice(1, -1));
-  }
+  try {
+    const result = await parser.getText();
+    const text = cleanExtractedText(result.text);
 
-  if (value.startsWith("<") && value.endsWith(">")) {
-    return decodePdfHex(value.slice(1, -1));
-  }
-
-  return "";
-}
-
-function extractTextFromPdfBytes(bytes: Uint8Array) {
-  const buffer = Buffer.from(bytes);
-  const source = buffer.toString("latin1");
-  const streamPattern =
-    /<<(?:[^<>]|<(?!<)|>(?!>))*\/Length[\s\S]*?>>\s*stream\r?\n?([\s\S]*?)\r?\n?endstream/g;
-  const chunks: string[] = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = streamPattern.exec(source))) {
-    const rawStream = Buffer.from(match[1], "latin1");
-    let streamText = "";
-
-    try {
-      streamText = inflateSync(rawStream).toString("latin1");
-    } catch {
-      streamText = rawStream.toString("latin1");
+    if (!text) {
+      throw new Error("No readable text was found in the PDF resume.");
     }
 
-    const textMatches = streamText.matchAll(/(\([^()]*(?:\\.[^()]*)*\)|<[0-9A-Fa-f\s]+>)\s*T[jJ]/g);
-    for (const textMatch of textMatches) {
-      chunks.push(decodePdfTextToken(textMatch[1]));
-    }
-
-    const arrayTextMatches = streamText.matchAll(
-      /\[((?:\s*(?:\([^()]*(?:\\.[^()]*)*\)|<[0-9A-Fa-f\s]+>|-?\d+\.?\d*)\s*)+)\]\s*TJ/g
-    );
-    for (const arrayMatch of arrayTextMatches) {
-      const parts = Array.from(
-        arrayMatch[1].matchAll(/\([^()]*(?:\\.[^()]*)*\)|<[0-9A-Fa-f\s]+>/g)
-      ).map((item) =>
-        decodePdfTextToken(item[0])
-      );
-      chunks.push(parts.join(""));
-    }
+    return text;
+  } finally {
+    await parser.destroy();
   }
-
-  return chunks.join("\n").replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 export async function extractResumeText(file: File) {
@@ -72,7 +37,7 @@ export async function extractResumeText(file: File) {
   const lowerName = file.name.toLowerCase();
 
   if (file.type === "application/pdf" || lowerName.endsWith(".pdf")) {
-    return { text: extractTextFromPdfBytes(bytes), bytes };
+    return { text: await extractTextFromPdfBytes(bytes), bytes };
   }
 
   if (
@@ -80,11 +45,11 @@ export async function extractResumeText(file: File) {
     lowerName.endsWith(".docx")
   ) {
     const result = await mammoth.extractRawText({ buffer: Buffer.from(bytes) });
-    return { text: result.value.trim(), bytes };
+    return { text: cleanExtractedText(result.value), bytes };
   }
 
   if (file.type === "text/plain" || lowerName.endsWith(".txt")) {
-    return { text: Buffer.from(bytes).toString("utf8").trim(), bytes };
+    return { text: cleanExtractedText(Buffer.from(bytes).toString("utf8")), bytes };
   }
 
   throw new Error("Unsupported file type. Upload PDF, DOCX, or TXT resumes.");

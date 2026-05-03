@@ -618,7 +618,8 @@ input:focus-visible {
 .match-table,
 .gap-table,
 .recommendation-list,
-.recent-list {
+.recent-list,
+.saved-role-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1087,6 +1088,100 @@ input:focus-visible {
 .right-stack {
   display: grid;
   gap: 14px;
+}
+
+.saved-target-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.saved-role-list {
+  display: grid;
+  gap: 8px;
+}
+
+.saved-role-list li {
+  display: grid;
+  grid-template-columns: 1fr 24px;
+  gap: 8px;
+  align-items: center;
+}
+
+.saved-role-list li > button:first-child {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.saved-role-list svg {
+  color: var(--blue);
+}
+
+.saved-role-list span {
+  display: grid;
+  min-width: 0;
+}
+
+.saved-role-list strong,
+.saved-progress-grid strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.saved-role-list small,
+.saved-progress-grid span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-role-list em,
+.saved-progress-grid em {
+  border-radius: var(--radius-sm);
+  background: var(--blue-bg);
+  color: var(--blue);
+  padding: 3px 7px;
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.saved-progress-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.saved-progress-grid article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.6fr) auto auto 28px;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.saved-progress-grid article:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.saved-progress-grid article > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
 .recommendation-list {
@@ -1691,6 +1786,7 @@ meter::-moz-meter-bar {
   .overview-summary,
   .audit-log-row,
   .filter-toolbar,
+  .saved-progress-grid article,
   .system-health,
   .screen-toolbar,
   .search-box {
