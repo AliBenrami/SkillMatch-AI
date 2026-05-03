@@ -236,6 +236,35 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
   return filterCandidateRecommendations(candidates, filters).slice(0, 20);
 }
 
+export async function getCandidateResumeById(candidateId: string) {
+  const db = getDatabase();
+
+  if (!db) {
+    const candidate = memoryCandidates.find((item) => item.id === candidateId);
+    return candidate
+      ? { fileName: candidate.fileName, storageUrl: candidate.storageUrl }
+      : null;
+  }
+
+  const rows = await db
+    .select({
+      fileName: candidateRecommendations.fileName,
+      storageUrl: candidateRecommendations.storageUrl
+    })
+    .from(candidateRecommendations)
+    .where(eq(candidateRecommendations.id, candidateId))
+    .limit(1);
+
+  if (!rows.length) {
+    return null;
+  }
+
+  return {
+    fileName: rows[0].fileName,
+    storageUrl: rows[0].storageUrl
+  };
+}
+
 export async function listAuditEvents() {
   const db = getDatabase();
 
