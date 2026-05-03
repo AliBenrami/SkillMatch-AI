@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getStorageConfig } from "./env";
 
 type StoredObject = {
   key: string;
@@ -9,18 +10,16 @@ type StoredObject = {
 const localObjects = new Map<string, Uint8Array>();
 
 function getR2Client() {
-  const accountId = process.env.R2_ACCOUNT_ID;
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const config = getStorageConfig();
 
-  if (!accountId || !accessKeyId || !secretAccessKey || !process.env.R2_BUCKET) {
+  if (config.provider !== "r2") {
     return null;
   }
 
   return new S3Client({
     region: "auto",
-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-    credentials: { accessKeyId, secretAccessKey }
+    endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
+    credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey }
   });
 }
 
@@ -37,11 +36,12 @@ export async function storeResumeFile(input: {
     input.fileName
   )}`;
   const client = getR2Client();
+  const storageConfig = getStorageConfig();
 
-  if (client) {
+  if (client && storageConfig.provider === "r2") {
     await client.send(
       new PutObjectCommand({
-        Bucket: process.env.R2_BUCKET,
+        Bucket: storageConfig.bucket,
         Key: key,
         Body: input.bytes,
         ContentType: input.contentType,
@@ -55,9 +55,9 @@ export async function storeResumeFile(input: {
     return {
       key,
       provider: "r2",
-      url: process.env.R2_PUBLIC_BASE_URL
-        ? `${process.env.R2_PUBLIC_BASE_URL.replace(/\/$/, "")}/${key}`
-        : `r2://${process.env.R2_BUCKET}/${key}`
+      url: storageConfig.publicBaseUrl
+        ? `${storageConfig.publicBaseUrl.replace(/\/$/, "")}/${key}`
+        : `r2://${storageConfig.bucket}/${key}`
     };
   }
 
