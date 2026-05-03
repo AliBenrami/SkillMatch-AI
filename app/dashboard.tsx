@@ -391,6 +391,17 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   <p>Job Family: {selectedRole.family}</p>
                   <p>Business Unit: {selectedRole.department}</p>
                   <p>Level: {selectedRole.level}</p>
+                  <p>
+                    Experience: {selectedRole.minimumYearsExperience} to {selectedRole.idealYearsExperience}+ years
+                  </p>
+                  <p>
+                    Certifications:{" "}
+                    {selectedRole.requiredCertifications.concat(selectedRole.preferredCertifications).join(", ") || "None specified"}
+                  </p>
+                  <p>
+                    Soft skills:{" "}
+                    {selectedRole.requiredSoftSkills.concat(selectedRole.preferredSoftSkills).join(", ")}
+                  </p>
                 </div>
                 {notice ? <p className="notice">{notice}</p> : null}
                 {failures.map((failure) => (
@@ -417,12 +428,13 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                         style={{ "--score": `${selectedResult?.score ?? 0}%` } as CSSProperties}
                         aria-label={selectedResult ? `Match score ${selectedResult.score}%` : "No match score yet"}
                       >
-                        <strong>{selectedResult ? `${selectedResult.score}%` : "—"}</strong>
+                        <strong>{selectedResult ? `${selectedResult.score}%` : "â€”"}</strong>
                       </div>
                       <strong>Overall Match</strong>
                       <span>{selectedResult ? selectedRole.title : "Upload resumes to rank positions"}</span>
                     </div>
                     <SkillList title="Top Matched Skills" items={matchedSkills.slice(0, 8)} />
+                    <ReadinessSignals result={selectedResult} />
                     <GapList gaps={missingSkills.slice(0, 8)} />
                   </div>
                   <RoleSkillGapChart
@@ -668,6 +680,47 @@ function GapList({ gaps }: { gaps: CandidateAnalysis["topPositions"][number]["mi
       ) : (
         <p className="list-placeholder">No gaps to display yet.</p>
       )}
+    </div>
+  );
+}
+
+function ReadinessSignals({ result }: { result?: CandidateAnalysis["topPositions"][number] }) {
+  if (!result) {
+    return (
+      <div>
+        <h3>
+          <BookmarkCheck aria-hidden="true" />
+          Readiness Signals
+        </h3>
+        <p className="list-placeholder">Upload a resume to compare experience, certifications, and soft skills.</p>
+      </div>
+    );
+  }
+
+  const { certifications, experience, softSkills } = result.explanationDetails;
+
+  return (
+    <div>
+      <h3>
+        <BookmarkCheck aria-hidden="true" />
+        Readiness Signals
+      </h3>
+      <ul className="match-table">
+        <li>
+          <span>Experience</span>
+          <small>
+            {experience.candidateYears ?? "Unknown"} yrs vs {experience.minimumYears}-{experience.idealYears}+ target
+          </small>
+        </li>
+        <li>
+          <span>Certifications</span>
+          <small>{certifications.matched}/{certifications.total} matched</small>
+        </li>
+        <li>
+          <span>Soft skills</span>
+          <small>{softSkills.matched}/{softSkills.total} matched</small>
+        </li>
+      </ul>
     </div>
   );
 }
