@@ -71,6 +71,10 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   const [isUploading, setIsUploading] = useState(false);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
+  const [skillFilter, setSkillFilter] = useState("");
+  const [educationFilter, setEducationFilter] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
+  const [minYearsFilter, setMinYearsFilter] = useState("");
 
   const selectedRole = roles.find((role) => role.id === roleId) ?? roles[0];
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? candidates[0];
@@ -121,9 +125,26 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   );
 
   const refreshRecords = useCallback(async () => {
+    const candidateParams = new URLSearchParams();
+    skillFilter
+      .split(",")
+      .map((skill) => skill.trim())
+      .filter(Boolean)
+      .forEach((skill) => candidateParams.append("skill", skill));
+    if (educationFilter.trim()) {
+      candidateParams.set("education", educationFilter.trim());
+    }
+    if (locationFilter.trim()) {
+      candidateParams.set("location", locationFilter.trim());
+    }
+    if (minYearsFilter.trim()) {
+      candidateParams.set("minYearsExperience", minYearsFilter.trim());
+    }
+
+    const candidateQuery = candidateParams.size ? `?${candidateParams.toString()}` : "";
     const auditRequest = user.role === "system_admin" ? fetch("/api/audit") : Promise.resolve(null);
     const [candidateResponse, analysisResponse, savedRolesResponse, auditResponse] = await Promise.all([
-      fetch("/api/candidates"),
+      fetch(`/api/candidates${candidateQuery}`),
       fetch("/api/analyses"),
       fetch("/api/saved-roles"),
       auditRequest
@@ -149,7 +170,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       const payload = (await auditResponse.json()) as { events: AuditEvent[] };
       setAuditEvents(payload.events);
     }
-  }, [user.role]);
+  }, [educationFilter, locationFilter, minYearsFilter, skillFilter, user.role]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshRecords(), 0);
@@ -439,6 +460,30 @@ export default function Dashboard({ user }: { user: SessionUser }) {
               </label>
               <button className="icon-text-button" onClick={() => void refreshRecords()}>Refresh</button>
             </div>
+            <div className="filter-toolbar" aria-label="Candidate filters">
+              <label>
+                Skills
+                <input value={skillFilter} onChange={(event) => setSkillFilter(event.target.value)} placeholder="java, aws" />
+              </label>
+              <label>
+                Education
+                <input value={educationFilter} onChange={(event) => setEducationFilter(event.target.value)} placeholder="Bachelor" />
+              </label>
+              <label>
+                Location
+                <input value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)} placeholder="Seattle" />
+              </label>
+              <label>
+                Min years
+                <input
+                  min="0"
+                  type="number"
+                  value={minYearsFilter}
+                  onChange={(event) => setMinYearsFilter(event.target.value)}
+                  placeholder="3"
+                />
+              </label>
+            </div>
             <section className="data-grid">
               {filteredCandidates.map((candidate) => (
                 <article className="candidate-card" key={candidate.id}>
@@ -448,6 +493,11 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   </div>
                   <p>{candidate.fileName}</p>
                   <strong style={{ fontSize: "13px" }}>{candidate.topPositions[0]?.role.title ?? "No recommendation"}</strong>
+                  <span className="candidate-meta">
+                    {(candidate.structured.skills.slice(0, 4).join(", ") || "No skills extracted")}
+                    {candidate.structured.location ? ` | ${candidate.structured.location}` : ""}
+                    {candidate.structured.yearsExperience !== null ? ` | ${candidate.structured.yearsExperience} yrs` : ""}
+                  </span>
                   <small>{candidate.topPositions[0]?.explanation}</small>
                 </article>
               ))}

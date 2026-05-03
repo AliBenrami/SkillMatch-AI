@@ -1400,6 +1400,23 @@ meter::-moz-meter-bar {
   gap: 12px;
 }
 
+.filter-toolbar {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(3, minmax(140px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.filter-toolbar label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
 .search-box {
   display: grid;
   grid-template-columns: 17px minmax(200px, 400px);
@@ -1496,6 +1513,12 @@ meter::-moz-meter-bar {
 .candidate-card p {
   margin: 0;
   font-size: 12px;
+}
+
+.candidate-meta {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 
 .candidate-card small {
@@ -1762,6 +1785,7 @@ meter::-moz-meter-bar {
   .overview-content,
   .overview-summary,
   .audit-log-row,
+  .filter-toolbar,
   .saved-progress-grid article,
   .system-health,
   .screen-toolbar,

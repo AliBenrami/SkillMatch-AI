@@ -7,6 +7,7 @@ import {
   normalizeResumeText,
   rankResumeForPositions
 } from "@/lib/skillmatch";
+import { filterCandidateRecommendations } from "@/lib/db";
 
 describe("skill matching engine", () => {
   it("normalizes resume text for lexical analysis", () => {
@@ -97,7 +98,51 @@ describe("skill matching engine", () => {
 
     expect(analysis.candidateName).toBe("Alex Smith");
     expect(analysis.structured.certifications.join(" ")).toMatch(/AWS Certified|Cloud Practitioner/i);
+    expect(analysis.structured.location).toBeNull();
     expect(maskDemographicSignals(analysis.structured.biasMaskedText)).toContain("[email masked]");
+  });
+
+  it("extracts candidate location for filtering", () => {
+    const analysis = analyzeCandidateResume({
+      fileName: "casey-lee-resume.txt",
+      storageUrl: "local://resume",
+      resumeText: "Casey Lee\nLocation: Seattle, WA\nBachelor Computer Science\n4 years experience with Java and AWS."
+    });
+
+    expect(analysis.structured.location).toBe("Seattle, WA");
+  });
+
+  it("filters candidate recommendations by skills, education, location, and years of experience", () => {
+    const seattleEngineer = analyzeCandidateResume({
+      fileName: "casey-lee-resume.txt",
+      storageUrl: "local://casey",
+      resumeText: [
+        "Casey Lee",
+        "Location: Seattle, WA",
+        "Bachelor Computer Science",
+        "5 years experience with Java, AWS, SQL, REST API, and Git."
+      ].join("\n")
+    });
+    const austinAnalyst = analyzeCandidateResume({
+      fileName: "riley-data-resume.txt",
+      storageUrl: "local://riley",
+      resumeText: [
+        "Riley Data",
+        "Location: Austin, TX",
+        "Master of Statistics",
+        "2 years experience with SQL, Python, Excel, Tableau, and dashboarding."
+      ].join("\n")
+    });
+
+    const results = filterCandidateRecommendations([seattleEngineer, austinAnalyst], {
+      skills: ["java", "aws"],
+      education: "Bachelor",
+      location: "Seattle",
+      minYearsExperience: 4
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].candidateName).toBe("Casey Lee");
   });
 
   it("masks explicit demographic fields beyond contact details", () => {
