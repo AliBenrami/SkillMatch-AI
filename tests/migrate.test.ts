@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 const tempDirectories: string[] = [];
 
 async function loadReadDatabaseUrl() {
-  const module = await import("../scripts/migrate.mjs");
-  return module.readDatabaseUrl as (options?: {
+  const migrateModule = await import("../scripts/migrate.mjs");
+  return migrateModule.readDatabaseUrl as (options?: {
     env?: NodeJS.ProcessEnv;
     cwd?: string;
   }) => string | undefined;
