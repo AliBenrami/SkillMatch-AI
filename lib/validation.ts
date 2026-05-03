@@ -65,6 +65,21 @@ export function parseJsonRequest<T>(schema: z.ZodType<T>, body: unknown) {
   };
 }
 
+export async function parseJsonRequestBody<T>(schema: z.ZodType<T>, request: Pick<Request, "json">) {
+  try {
+    return parseJsonRequest(schema, await request.json());
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return {
+        data: null,
+        error: "Malformed JSON body."
+      };
+    }
+
+    throw error;
+  }
+}
+
 export function isKnownRoleId(value: string) {
   return roleIdSchema.safeParse(value).success;
 }
