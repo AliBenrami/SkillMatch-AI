@@ -11,7 +11,10 @@ const requiredTables = [
 ] as const;
 
 /** Tables expected to exist; columns checked only when the table is already present. */
-const requiredColumns = [{ table: "candidate_recommendations", column: "ai_insight" }] as const;
+const requiredColumns = [
+  { table: "candidate_recommendations", column: "ai_insight" },
+  { table: "candidate_recommendations", column: "assigned_learning_modules" }
+] as const;
 
 export const dynamic = "force-dynamic";
 

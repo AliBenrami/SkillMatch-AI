@@ -15,6 +15,7 @@ import {
   type CandidateAnalysis,
 } from "@/lib/skillmatch";
 import { isAllowedResumeUpload } from "@/lib/resume-upload-validation";
+import { serverErrorResponse } from "@/lib/server-api-error";
 import { storeResumeFile } from "@/lib/storage";
 
 const maxFiles = 12;
@@ -23,12 +24,13 @@ const maxFileSize = 8 * 1024 * 1024;
 const maxZipFileSize = 25 * 1024 * 1024;
 
 export async function POST(request: Request) {
-  const user = await getSessionUser();
-  if (!user) {
-    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-  }
+  try {
+    const user = await getSessionUser();
+    if (!user) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
 
-  const formData = await request.formData();
+    const formData = await request.formData();
   const rawFiles = formData
     .getAll("resumes")
     .filter((item): item is File => item instanceof File && item.size > 0);
@@ -205,5 +207,8 @@ export async function POST(request: Request) {
     body.persistError = persistError;
   }
 
-  return NextResponse.json(body);
+    return NextResponse.json(body);
+  } catch (error) {
+    return serverErrorResponse(error);
+  }
 }
