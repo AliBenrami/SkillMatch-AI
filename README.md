@@ -47,9 +47,11 @@ The available variables are listed in `.env.example`.
 
 Persistent storage is modeled with Drizzle ORM in `db/schema.ts` and mirrored by the SQL bootstrap file in `db/schema.sql`:
 
+- `users`
 - `analyses`
 - `audit_events`
 - `candidate_recommendations`
+- `saved_target_roles`
 
 Apply the schema before running against a real `DATABASE_URL`. To generate Drizzle migrations from the typed schema, run:
 
@@ -57,13 +59,15 @@ Apply the schema before running against a real `DATABASE_URL`. To generate Drizz
 npm run db:generate
 ```
 
-Then apply generated migrations with:
+Then apply the repeatable setup step with:
 
 ```powershell
-npm run db:migrate
+npm run db:setup
 ```
 
-The migration script uses `DATABASE_URL` from the current shell or `.env`.
+`npm run db:setup` and `npm run db:migrate` both run the same idempotent migration entrypoint. It resolves `DATABASE_URL` from the current shell first, then `.env.local`, then `.env`, which matches the local setup flow above.
+
+If the database is already current, rerunning the command is safe. If no `DATABASE_URL` is configured, the script fails early with a clear message instead of silently falling back to in-memory mode.
 
 For the existing bootstrap SQL, you can still run:
 
@@ -78,6 +82,7 @@ You can also paste the contents of `db/schema.sql` into the Neon SQL editor for 
 The app is designed to run without external services during local development:
 
 - If `DATABASE_URL` is not set, `lib/db.ts` stores analyses, candidate recommendations, and audit events in memory. Data resets when the dev server restarts.
+- `GET /api/health` reports whether the app is using memory fallback or a configured Postgres database, and returns `503` when a database is configured but the expected tables have not been created yet.
 - Signup requires `DATABASE_URL`; created accounts are stored in the `users` table. When no database is configured, sign in with demo or `AUTH_USERS_JSON` users instead.
 - If any required R2 setting is missing, `lib/storage.ts` stores uploaded resume bytes in an in-memory map and returns `local://...` URLs. Those files are not persisted across server restarts.
 - If `AUTH_USERS_JSON` is not set, demo users are loaded from `lib/auth-model.ts`.
