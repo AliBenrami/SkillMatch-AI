@@ -1,1 +1,1 @@
-ALTER TABLE "candidate_recommendations" ADD COLUMN "ai_insight" jsonb;
+ALTER TABLE "candidate_recommendations" ADD COLUMN IF NOT EXISTS "ai_insight" jsonb;

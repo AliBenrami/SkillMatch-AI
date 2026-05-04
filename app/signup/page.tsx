@@ -33,12 +33,19 @@ export default function SignupPage() {
 
   return (
     <main className="login-shell">
-      <form action={signup} className="login-card">
+      <form
+        className="login-card"
+        method="post"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void signup(new FormData(event.currentTarget));
+        }}
+      >
         <div className="brand login-brand">
           <AmazonLogo />
         </div>
         <h1>Create Talent Match account</h1>
-        <p>Sign up with a database-backed account for this environment.</p>
+        <p>Sign up with your email and role to access Talent Match.</p>
 
         <label>
           Name

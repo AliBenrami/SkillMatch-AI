@@ -1,5 +1,27 @@
 import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
 
+/** Deterministic credential users used when Playwright starts `next dev` (avoid host .env Neon users). */
+const PLAYWRIGHT_DEMO_USERS = JSON.stringify([
+  {
+    name: "Priya Recruiter",
+    email: "recruiter@skillmatch.demo",
+    role: "recruiter",
+    password: "SkillMatchDemo!23"
+  },
+  {
+    name: "Yash Admin",
+    email: "admin@skillmatch.demo",
+    role: "system_admin",
+    password: "SkillMatchAdmin!23"
+  },
+  {
+    name: "Lina L&D",
+    email: "learning@skillmatch.demo",
+    role: "learning_development",
+    password: "SkillMatchLearn!23"
+  }
+]);
+
 const edgeChannel =
   process.env.PLAYWRIGHT_EDGE_CHANNEL ??
   (process.platform === "win32" ? "msedge" : undefined);
@@ -60,7 +82,10 @@ export default defineConfig({
   webServer: {
     command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
     env: {
-      DATABASE_URL: ""
+      DATABASE_URL: "",
+      AUTH_USERS_JSON: PLAYWRIGHT_DEMO_USERS,
+      E2E_DISABLE_DATABASE: "1",
+      NEXT_PUBLIC_SKILLMATCH_E2E_FILE_HOOK: "1"
     },
     url: "http://127.0.0.1:3000/login",
     reuseExistingServer: process.env.PW_REUSE_SERVER === "1",

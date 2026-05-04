@@ -8,6 +8,7 @@ import {
 } from "@/lib/db";
 import { extractResumeText } from "@/lib/resume-parser";
 import { generateResumeAiInsight, getResumeAiInsightConfig } from "@/lib/resume-ai-insight";
+import { expandResumeUploads } from "@/lib/resume-upload-files";
 import {
   analyzeCandidateResume,
   inferCandidateName,
@@ -17,7 +18,9 @@ import { isAllowedResumeUpload } from "@/lib/resume-upload-validation";
 import { storeResumeFile } from "@/lib/storage";
 
 const maxFiles = 12;
+const maxRawUploads = 4;
 const maxFileSize = 8 * 1024 * 1024;
+const maxZipFileSize = 25 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -26,16 +29,34 @@ export async function POST(request: Request) {
   }
 
   const formData = await request.formData();
-  const files = formData
+  const rawFiles = formData
     .getAll("resumes")
     .filter((item): item is File => item instanceof File && item.size > 0);
 
+  if (!rawFiles.length) {
+    return NextResponse.json({ error: "Upload at least one PDF, DOCX, TXT, or ZIP file." }, { status: 400 });
+  }
+
+  if (rawFiles.length > maxRawUploads && rawFiles.some((file) => file.name.toLowerCase().endsWith(".zip"))) {
+    return NextResponse.json({ error: `Upload ${maxRawUploads} zip files or fewer at a time.` }, { status: 400 });
+  }
+
+  for (const file of rawFiles) {
+    if (file.name.toLowerCase().endsWith(".zip") && file.size > maxZipFileSize) {
+      return NextResponse.json({ error: "Zip file exceeds 25 MB limit." }, { status: 400 });
+    }
+  }
+
+  const expanded = await expandResumeUploads(rawFiles);
+  const files = expanded.files;
+  const failures: Array<{ fileName: string; error: string }> = [...expanded.failures];
+
   if (!files.length) {
-    return NextResponse.json({ error: "Upload at least one PDF or DOCX resume." }, { status: 400 });
+    return NextResponse.json({ error: "Upload at least one supported resume file.", failures }, { status: 400 });
   }
 
   if (files.length > maxFiles) {
-    return NextResponse.json({ error: `Upload ${maxFiles} resumes or fewer at a time.` }, { status: 400 });
+    return NextResponse.json({ error: `Upload ${maxFiles} resumes or fewer at a time, including files inside zips.` }, { status: 400 });
   }
 
   const candidates: CandidateAnalysis[] = [];
@@ -45,7 +66,6 @@ export async function POST(request: Request) {
     duplicateKey: string;
     clusterKey: string;
   }[] = [];
-  const failures: Array<{ fileName: string; error: string }> = [];
   const duplicates: CandidateDuplicateWarning[] = [];
   const seenDuplicateKeys = new Set<string>();
   const seenClusterKeys = new Set<string>();

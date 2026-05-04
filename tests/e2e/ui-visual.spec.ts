@@ -2,10 +2,14 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
+import { signInDemoRecruiter } from "./auth-helpers";
+import { pickDashboardResume } from "./dashboard-upload-helpers";
 
 const shotDir = path.join(process.cwd(), "ui-review-screenshots");
 const fixtureDir = path.join(process.cwd(), "tests", "fixtures");
 const resumePath = path.join(fixtureDir, "alex-smith-sde-resume.pdf");
+
+let hasMemoryIsolation = false;
 
 function ensureResumePdf() {
   fs.mkdirSync(fixtureDir, { recursive: true });
@@ -23,9 +27,18 @@ function ensureResumePdf() {
 
 test.describe.configure({ mode: "serial" });
 
-test.beforeAll(() => {
+test.beforeAll(async ({ request }) => {
   ensureResumePdf();
   fs.mkdirSync(shotDir, { recursive: true });
+  hasMemoryIsolation = (await request.post("/api/e2e/reset-memory")).ok();
+});
+
+test.beforeEach(async ({ request }) => {
+  if (!hasMemoryIsolation) {
+    return;
+  }
+  const response = await request.post("/api/e2e/reset-memory");
+  expect(response.ok(), await response.text()).toBeTruthy();
 });
 
 test("captures auth and dashboard screens for visual review", async ({ page, browserName }) => {
@@ -46,19 +59,14 @@ test("captures auth and dashboard screens for visual review", async ({ page, bro
     fullPage: true
   });
 
-  await page.goto("/login");
-  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
-  await page.getByLabel("Password").fill("SkillMatchDemo!23");
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
+  await signInDemoRecruiter(page);
   await expect(page.getByRole("navigation", { name: "Sections" })).toBeVisible();
   await page.screenshot({
     path: path.join(shotDir, `03-dashboard-empty-${tag}.png`),
     fullPage: true
   });
 
-  const uploadInput = page.locator('input[type="file"]').first();
-  await uploadInput.setInputFiles(resumePath);
+  await pickDashboardResume(page, resumePath);
   await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
   await expect(page.getByText(/Processed 1 resume|No resumes were processed\./)).toBeVisible();
   await page.screenshot({

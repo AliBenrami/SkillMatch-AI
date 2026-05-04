@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -66,7 +66,43 @@ function fileKey(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
-export default function Dashboard({ user }: { user: SessionUser }) {
+function candidateHasStoredResumeFile(candidate: Pick<CandidateAnalysis, "storageUrl" | "fileName">) {
+  return Boolean(candidate.storageUrl?.trim() && candidate.fileName?.trim());
+}
+
+function CandidateResumeFileLinks({ candidate }: { candidate: CandidateAnalysis }) {
+  if (!candidateHasStoredResumeFile(candidate)) {
+    return null;
+  }
+  const hrefBase = `/api/candidates/${candidate.id}/resume`;
+  const isPdf = candidate.fileName.toLowerCase().endsWith(".pdf");
+  return (
+    <span className="candidate-resume-links">
+      <a
+        className="resume-download-link"
+        href={`${hrefBase}?view=1`}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        View résumé
+      </a>
+      <span className="candidate-resume-links-sep" aria-hidden="true">
+        ·
+      </span>
+      <a className="resume-download-link" href={hrefBase}>
+        {isPdf ? "Download PDF" : "Download file"}
+      </a>
+    </span>
+  );
+}
+
+export default function Dashboard({
+  user,
+  enableE2eFileHook = false,
+}: {
+  user: SessionUser;
+  enableE2eFileHook?: boolean;
+}) {
   const [view, setView] = useState<View>("dashboard");
   const [roleId, setRoleId] = useState("sde-ii");
   const [files, setFiles] = useState<File[]>([]);
@@ -75,14 +111,34 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   const [savedRoles, setSavedRoles] = useState<SavedTargetRole[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [failures, setFailures] = useState<UploadResponse["failures"]>([]);
+  const [uploadDuplicateWarnings, setUploadDuplicateWarnings] = useState<CandidateDuplicateWarning[]>([]);
+  const [overrideCandidate, setOverrideCandidate] = useState<CandidateAnalysis | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [analysisHistoryStatus, setAnalysisHistoryStatus] = useState<
+    "loading" | "ready" | "forbidden" | "error"
+  >("loading");
   const [query, setQuery] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [educationFilter, setEducationFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [minYearsFilter, setMinYearsFilter] = useState("");
+  const serverFiltersRef = useRef({
+    skill: "",
+    education: "",
+    location: "",
+    minYears: "",
+  });
+
+  useEffect(() => {
+    serverFiltersRef.current = {
+      skill: skillFilter,
+      education: educationFilter,
+      location: locationFilter,
+      minYears: minYearsFilter,
+    };
+  }, [educationFilter, locationFilter, minYearsFilter, skillFilter]);
 
   const selectedRole = roles.find((role) => role.id === roleId) ?? roles[0];
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? candidates[0];
@@ -134,64 +190,104 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       .includes(query.toLowerCase())
   );
 
-  const refreshRecords = useCallback(async () => {
-    const candidateParams = new URLSearchParams();
-    skillFilter
-      .split(",")
-      .map((skill) => skill.trim())
-      .filter(Boolean)
-      .forEach((skill) => candidateParams.append("skill", skill));
-    if (educationFilter.trim()) {
-      candidateParams.set("education", educationFilter.trim());
-    }
-    if (locationFilter.trim()) {
-      candidateParams.set("location", locationFilter.trim());
-    }
-    if (minYearsFilter.trim()) {
-      candidateParams.set("minYearsExperience", minYearsFilter.trim());
-    }
+  const hasActiveServerCandidateFilters = Boolean(
+    skillFilter.trim() || educationFilter.trim() || locationFilter.trim() || minYearsFilter.trim()
+  );
 
-    const candidateQuery = candidateParams.size ? `?${candidateParams.toString()}` : "";
-    const auditRequest = user.role === "system_admin" ? fetch("/api/audit") : Promise.resolve(null);
-    const [candidateResponse, analysisResponse, savedRolesResponse, auditResponse] = await Promise.all([
-      fetch(`/api/candidates${candidateQuery}`),
-      fetch("/api/analyses"),
-      fetch("/api/saved-roles"),
-      auditRequest
-    ]);
+  const refreshRecords = useCallback(
+    async (options?: { skipCandidates?: boolean; forceEmptyCandidateFilters?: boolean }) => {
+      const candidateParams = new URLSearchParams();
+      const useServerFilters = !options?.forceEmptyCandidateFilters;
+      if (useServerFilters) {
+        skillFilter
+          .split(",")
+          .map((skill) => skill.trim())
+          .filter(Boolean)
+          .forEach((skill) => candidateParams.append("skill", skill));
+        if (educationFilter.trim()) {
+          candidateParams.set("education", educationFilter.trim());
+        }
+        if (locationFilter.trim()) {
+          candidateParams.set("location", locationFilter.trim());
+        }
+        if (minYearsFilter.trim()) {
+          candidateParams.set("minYearsExperience", minYearsFilter.trim());
+        }
+      }
 
-    if (candidateResponse.ok) {
-      const payload = (await candidateResponse.json()) as { candidates: CandidateAnalysis[] };
-      setCandidates(payload.candidates);
-      setSelectedCandidateId((current) => current || payload.candidates[0]?.id || "");
-    }
+      const candidateQuery = candidateParams.size ? `?${candidateParams.toString()}` : "";
+      const auditRequest = user.role === "system_admin" ? fetch("/api/audit") : Promise.resolve(null);
 
-    if (analysisResponse.ok) {
-      const payload = (await analysisResponse.json()) as { analyses: AnalysisRecord[] };
-      setAnalyses(payload.analyses);
-    }
+      const skipCandidates = Boolean(options?.skipCandidates);
+      const [candidateResponse, analysisResponse, savedRolesResponse, auditResponse] = await Promise.all([
+        skipCandidates ? Promise.resolve(null) : fetch(`/api/candidates${candidateQuery}`),
+        fetch("/api/analyses"),
+        fetch("/api/saved-roles"),
+        auditRequest
+      ]);
 
-    if (savedRolesResponse.ok) {
-      const payload = (await savedRolesResponse.json()) as { savedRoles: SavedTargetRole[] };
-      setSavedRoles(payload.savedRoles);
-    }
+      if (candidateResponse) {
+        if (candidateResponse.ok) {
+          const payload = (await candidateResponse.json()) as { candidates: CandidateAnalysis[] };
+          setCandidates(payload.candidates);
+          setSelectedCandidateId((current) => {
+            const ids = new Set(payload.candidates.map((c) => c.id));
+            if (!payload.candidates.length) {
+              return "";
+            }
+            if (current && ids.has(current)) {
+              return current;
+            }
+            return payload.candidates[0]!.id;
+          });
+        } else {
+          const payload = (await candidateResponse.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          setNotice(payload.error ?? `Could not load candidates (HTTP ${candidateResponse.status}).`);
+        }
+      }
 
-    if (auditResponse?.ok) {
-      const payload = (await auditResponse.json()) as { events: AuditEvent[] };
-      setAuditEvents(payload.events);
-    }
-  }, [educationFilter, locationFilter, minYearsFilter, skillFilter, user.role]);
+      if (analysisResponse.ok) {
+        const payload = (await analysisResponse.json()) as { analyses: AnalysisRecord[] };
+        setAnalyses(payload.analyses);
+        setAnalysisHistoryStatus("ready");
+      } else if (analysisResponse.status === 403) {
+        setAnalyses([]);
+        setAnalysisHistoryStatus("forbidden");
+      } else {
+        setAnalysisHistoryStatus("error");
+      }
+
+      if (savedRolesResponse.ok) {
+        const payload = (await savedRolesResponse.json()) as { savedRoles: SavedTargetRole[] };
+        setSavedRoles(payload.savedRoles);
+      } else {
+        const payload = (await savedRolesResponse.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setNotice(payload.error ?? `Could not load saved roles (HTTP ${savedRolesResponse.status}).`);
+      }
+
+      if (auditResponse?.ok) {
+        const payload = (await auditResponse.json()) as { events: AuditEvent[] };
+        setAuditEvents(payload.events);
+      }
+
+    },
+    [educationFilter, locationFilter, minYearsFilter, skillFilter, user.role]
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshRecords(), 0);
     return () => window.clearTimeout(timer);
   }, [refreshRecords]);
 
-  function addFiles(fileList: FileList | null) {
+  const addFiles = useCallback((fileList: FileList | null) => {
     if (!fileList) {
       return;
     }
-    const nextFiles = Array.from(fileList).filter((file) => /\.(pdf|docx|txt)$/i.test(file.name));
+    const nextFiles = Array.from(fileList).filter((file) => /\.(pdf|docx|txt|zip)$/i.test(file.name));
     setFiles((current) => {
       const queued = new Set(current.map(fileKey));
       const uniqueFiles = nextFiles.filter((file) => {
@@ -204,7 +300,26 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       });
       return [...current, ...uniqueFiles].slice(0, 12);
     });
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!enableE2eFileHook) {
+      return;
+    }
+    const win = window as Window & {
+      __skillmatchE2eSyncQueuedFilesFromInput?: () => void;
+    };
+    win.__skillmatchE2eSyncQueuedFilesFromInput = () => {
+      const input = document.querySelector<HTMLInputElement>(".upload-panel input[type=file]");
+      if (!input?.files?.length) {
+        return;
+      }
+      addFiles(input.files);
+    };
+    return () => {
+      delete win.__skillmatchE2eSyncQueuedFilesFromInput;
+    };
+  }, [addFiles, enableE2eFileHook]);
 
   function removeFile(fileToRemove: File) {
     const removeKey = fileKey(fileToRemove);
@@ -224,6 +339,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     setIsUploading(true);
     setNotice("");
     setFailures([]);
+    setUploadDuplicateWarnings([]);
 
     const formData = new FormData();
     files.forEach((file) => formData.append("resumes", file));
@@ -264,11 +380,14 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       }
 
       const uploadPayload = payload as UploadResponse;
+      const duplicatesFromResponse = uploadPayload.duplicates ?? [];
       setCandidates((current) => [...uploadPayload.candidates, ...current]);
-      setSelectedCandidateId(uploadPayload.candidates[0]?.id ?? selectedCandidateId);
+      const newestUploadedId = uploadPayload.candidates.at(-1)?.id;
+      setSelectedCandidateId(newestUploadedId ?? selectedCandidateId);
       setFailures(uploadPayload.failures);
+      setUploadDuplicateWarnings(duplicatesFromResponse);
 
-      const duplicates = uploadPayload.duplicates ?? [];
+      const duplicates = duplicatesFromResponse;
       const dupPhrase =
         duplicates.length > 0
           ? duplicates.length === 1
@@ -287,12 +406,33 @@ export default function Dashboard({ user }: { user: SessionUser }) {
             ? ` Results were analyzed but could not be saved: ${persistWarn}`
             : ` ${persistWarn}`;
       }
+
+      const prevFilters = serverFiltersRef.current;
+      const hadServerFilters = Boolean(
+        prevFilters.skill.trim() ||
+          prevFilters.education.trim() ||
+          prevFilters.location.trim() ||
+          prevFilters.minYears.trim(),
+      );
+      if (uploadPayload.candidates.length > 0 && !persistWarn && hadServerFilters) {
+        message += " Candidate filters were cleared so new uploads stay visible under Analyses.";
+        setSkillFilter("");
+        setEducationFilter("");
+        setLocationFilter("");
+        setMinYearsFilter("");
+      }
+
       setNotice(message);
 
       setFiles([]);
 
-      if (!persistWarn) {
-        void refreshRecords();
+      if (uploadPayload.candidates.length > 0 && !persistWarn) {
+        void refreshRecords({
+          skipCandidates: false,
+          forceEmptyCandidateFilters: true,
+        });
+      } else {
+        void refreshRecords({ skipCandidates: Boolean(persistWarn) });
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Upload failed unexpectedly.");
@@ -315,20 +455,24 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     });
 
     if (!response.ok) {
-      setNotice("Could not save this target role.");
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setNotice(payload.error ?? "Could not bookmark this role for Learning.");
       return;
     }
 
     const payload = (await response.json()) as { savedRole: SavedTargetRole };
     setSavedRoles((current) => [payload.savedRole, ...current.filter((role) => role.id !== payload.savedRole.id)]);
-    setNotice(`${selectedRole.title} saved as a target role.`);
+    setNotice(`Pinned "${selectedRole.title}" for Learning. Candidate analyses stay under Analyses.`);
   }
 
   async function removeSavedRole(id: string) {
     const response = await fetch(`/api/saved-roles?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     if (response.ok) {
       setSavedRoles((current) => current.filter((role) => role.id !== id));
+      return;
     }
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    setNotice(payload.error ?? "Could not remove this bookmark. Try again.");
   }
 
   async function logout() {
@@ -338,6 +482,8 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
   const matchedSkills = selectedResult?.matchedSkills ?? [];
   const missingSkills = selectedResult?.missingSkills ?? [];
+  const userCanSubmitRecruiterOverride =
+    user.role === "recruiter" || user.role === "hiring_manager" || user.role === "system_admin";
 
   return (
     <main className="product-shell">
@@ -360,6 +506,15 @@ export default function Dashboard({ user }: { user: SessionUser }) {
             </label>
           </div>
           <div className="header-actions">
+            <button
+              className="icon-text-button"
+              type="button"
+              disabled={isUploading}
+              title={isUploading ? "Wait for upload to finish before refreshing." : "Reload candidates, bookmarks, and analysis history"}
+              onClick={() => void refreshRecords()}
+            >
+              Refresh data
+            </button>
             <span className="session-meta">
               {user.name}
               <span className="session-meta-role">{user.role.replace("_", " ")}</span>
@@ -404,13 +559,13 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   onDragOver={(event) => event.preventDefault()}
                 >
                   <UploadCloud aria-hidden="true" />
-                  <strong>Drop PDF, DOCX, or TXT resumes here</strong>
+                  <strong>Drop PDF, DOCX, TXT, or ZIP resumes here</strong>
                   <span>or click to browse</span>
                   <input
                     aria-label="Upload resume files"
                     type="file"
                     multiple
-                    accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    accept=".pdf,.docx,.txt,.zip,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,application/zip,application/x-zip-compressed"
                     onChange={(event) => {
                       addFiles(event.target.files);
                       event.currentTarget.value = "";
@@ -466,7 +621,54 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                     {failure.fileName}: {failure.error}
                   </p>
                 ))}
-                <button className="run-button" onClick={uploadResumes} disabled={isUploading || !files.length}>
+                {uploadDuplicateWarnings.length > 0 ? (
+                  <div
+                    data-testid="upload-duplicate-advisory"
+                    className="rounded-lg border border-border-strong bg-brand-light px-3 py-2.5 text-[13px] text-ink"
+                    role="region"
+                    aria-label="Duplicate resume notices"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <strong className="font-semibold">Duplicate / cluster notices</strong>
+                        <span className="mt-1 block font-normal leading-snug text-muted">
+                          These files matched an existing uploaded résumé or another file in this run. Ranking did not store
+                          a new row until you resolve overlaps.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="queue-icon-button shrink-0"
+                        aria-label="Dismiss duplicate notices"
+                        title="Dismiss"
+                        onClick={() => setUploadDuplicateWarnings([])}
+                      >
+                        <X aria-hidden={true} />
+                      </button>
+                    </div>
+                    <ul className="upload-duplicate-list mt-3 list-none space-y-1.5 p-0 font-medium">
+                      {uploadDuplicateWarnings.map((dup) => (
+                        <li key={`${dup.fileName}:${dup.duplicateKey}:${dup.clusterKey}:${dup.source}`}>
+                          <span className="text-ink">{dup.fileName}</span>
+                          <span className="text-muted"> — {dup.message}</span>
+                          {dup.matchedFileName ? (
+                            <span className="text-muted"> ({dup.matchedFileName})</span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <button
+                  className="run-button"
+                  onClick={uploadResumes}
+                  disabled={isUploading || !files.length}
+                  title={
+                    !files.length
+                      ? "Add at least one résumé file (PDF, DOCX, TXT, or ZIP) to run analysis."
+                      : undefined
+                  }
+                >
                   <SlidersHorizontal aria-hidden="true" />
                   {isUploading ? "Processing resumes..." : "Run SkillMatch Analysis"}
                 </button>
@@ -475,7 +677,12 @@ export default function Dashboard({ user }: { user: SessionUser }) {
               <section className="concept-panel overview-panel">
                 <div className="panel-heading">
                   <h2>Skill Match Overview</h2>
-                  {selectedCandidate ? <span>{selectedCandidate.candidateName}</span> : null}
+                  {selectedCandidate ? (
+                    <span className="overview-panel-candidate-heading">
+                      <span>{selectedCandidate.candidateName}</span>
+                      <CandidateResumeFileLinks candidate={selectedCandidate} />
+                    </span>
+                  ) : null}
                 </div>
                 <div className="overview-content">
                   <div className="overview-summary">
@@ -506,6 +713,8 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 <SavedTargetRolesPanel
                   currentRoleSaved={Boolean(savedCurrentRole)}
                   roles={savedRoles}
+                  bookmarkDisabled={!selectedResult}
+                  bookmarkDisabledReason="Run analysis on at least one résumé to snapshot match scores for this role."
                   onRemove={removeSavedRole}
                   onSave={saveCurrentTargetRole}
                   onSelect={(id) => {
@@ -563,9 +772,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   </div>
                   <p>
                     {candidate.fileName}{" "}
-                    <a className="resume-download-link" href={`/api/candidates/${candidate.id}/resume`}>
-                      Download original
-                    </a>
+                    <CandidateResumeFileLinks candidate={candidate} />
                   </p>
                   <strong style={{ fontSize: "13px" }}>{candidate.topPositions[0]?.role.title ?? "No recommendation"}</strong>
                   <span className="candidate-meta">
@@ -574,16 +781,48 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                     {candidate.structured.yearsExperience !== null ? ` | ${candidate.structured.yearsExperience} yrs` : ""}
                   </span>
                   <small>{candidate.topPositions[0]?.explanation}</small>
+                  {userCanSubmitRecruiterOverride ? (
+                    <button
+                      type="button"
+                      className="icon-text-button mt-3 text-left self-start"
+                      onClick={() => setOverrideCandidate(candidate)}
+                    >
+                      Flag recruiter override (audit-only)
+                    </button>
+                  ) : null}
                 </article>
               ))}
-              {!filteredCandidates.length ? <EmptyPanel title="No candidate analyses yet" text="Upload resumes from the dashboard to populate this screen." /> : null}
+              {!filteredCandidates.length ? (
+                candidates.length > 0 ? (
+                  <EmptyPanel
+                    title="No matching candidates"
+                    text="None of the candidates currently loaded match. Clear the search box or loosen Skill / Location / Education / Min years, then Refresh."
+                  />
+                ) : hasActiveServerCandidateFilters ? (
+                  <EmptyPanel
+                    title="No candidates match these filters"
+                    text="The server returned no rows for your Skill / Location / Education / Min years filters. Clear or loosen them and press Refresh—you may have excluded an upload you just processed."
+                  />
+                ) : (
+                  <EmptyPanel
+                    title="No candidate analyses yet"
+                    text="No candidates yet—upload from the Dashboard tab. Analyses are available after you process résumés."
+                  />
+                )
+              ) : null}
             </section>
-            <HistoryTable analyses={analyses} />
+            <HistoryTable analyses={analyses} status={analysisHistoryStatus} />
           </section>
         ) : null}
 
         {view === "learning" ? (
           <section className="screen-stack">
+            <div className="screen-toolbar">
+              <span className="text-[13px] text-muted">Bookmarks & metrics refresh from the server.</span>
+              <button className="icon-text-button" type="button" onClick={() => void refreshRecords()}>
+                Refresh
+              </button>
+            </div>
             <section className="metric-grid">
               <Metric label="Saved target roles" value={savedRoles.length} />
               <Metric label="Current role progress" value={savedCurrentRole ? `${savedCurrentRole.progressPercent}%` : "Not saved"} />
@@ -594,6 +833,9 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 <h2>Learning Recommendations</h2>
                 <span>{selectedRole.title}</span>
               </div>
+              <p className="m-0 mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
+                Demo mapping — not wired to LMS
+              </p>
               <div className="learning-grid">
                 {Object.entries(selectedRole.learning).map(([skill, course]) => (
                   <article className="learning-item" key={skill}>
@@ -612,6 +854,12 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
         {view === "workforce" ? (
           <section className="screen-stack">
+            <div className="screen-toolbar">
+              <span className="text-[13px] text-muted">Counts reflect analyzed candidates from this workspace.</span>
+              <button className="icon-text-button" type="button" onClick={() => void refreshRecords()}>
+                Refresh
+              </button>
+            </div>
             <section className="metric-grid">
               <Metric label="Open role families" value={roles.length} />
               <Metric label="Candidates reviewed" value={candidates.length} />
@@ -620,8 +868,11 @@ export default function Dashboard({ user }: { user: SessionUser }) {
             <section className="concept-panel">
               <div className="panel-heading">
                 <h2>Role Coverage Matrix</h2>
-                <span>Current catalog</span>
+                <span>Seed catalog (demo)</span>
               </div>
+              <p className="m-0 mb-3 text-[12px] leading-snug text-muted">
+                Roles and skills come from bundled seed data—not live headcount or ATS openings.
+              </p>
               <div className="role-matrix">
                 {roles.map((role) => (
                   <article key={role.id}>
@@ -641,6 +892,11 @@ export default function Dashboard({ user }: { user: SessionUser }) {
               </div>
               <p className="m-0 text-[13px] leading-relaxed text-muted">
                 Aggregated missing skills from recent analyses (when available).
+                {!workforceGaps.length && !candidates.length ? (
+                  <span className="block pt-2 font-medium text-ink">
+                    Illustrative gaps from the selected role&apos;s requirements appear below until résumé analyses exist.
+                  </span>
+                ) : null}
               </p>
               <div className="flex flex-col gap-3">
                 {(workforceGaps.length
@@ -681,15 +937,15 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   <Activity className="size-[17px]" strokeWidth={2} />
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="text-[12px] font-bold uppercase tracking-wide text-subtle">Processing queue</span>
+                  <span className="text-[12px] font-bold uppercase tracking-wide text-subtle">Browser upload staging</span>
                   <p className="m-0 text-[13px] font-medium leading-snug text-ink">
                     {isUploading && files.length > 0 ? (
                       <>
-                        <span className="font-semibold text-brand">{files.length}</span> resume upload
-                        {files.length === 1 ? "" : "s"} in progress.
+                        <span className="font-semibold text-brand">{files.length}</span> file
+                        {files.length === 1 ? "" : "s"} queued in this browser before analysis runs—not a server job queue.
                       </>
                     ) : (
-                      <span className="text-muted">Idle — nothing queued right now.</span>
+                      <span className="text-muted">Nothing staged in your browser queue.</span>
                     )}
                   </p>
                 </div>
@@ -705,7 +961,21 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 <h2>Audit Log</h2>
                 <span>{user.role === "system_admin" ? `${auditEvents.length} events` : "Admin only"}</span>
               </div>
-              {user.role === "system_admin" ? <AuditTable events={auditEvents} /> : <EmptyPanel title="Restricted screen" text="System administrators can view login, upload, and override events." />}
+              {user.role === "system_admin" ? (
+                <>
+                  <div className="mb-3 flex flex-wrap justify-end gap-2">
+                    <button className="icon-text-button" type="button" onClick={() => void refreshRecords()}>
+                      Refresh log
+                    </button>
+                  </div>
+                  <AuditTable events={auditEvents} />
+                </>
+              ) : (
+                <EmptyPanel
+                  title="Restricted screen"
+                  text="System administrators can view login, upload, and override events."
+                />
+              )}
             </section>
           </section>
         ) : null}
@@ -721,16 +991,167 @@ export default function Dashboard({ user }: { user: SessionUser }) {
               </div>
               <div>
                 <h2>MVP Controls</h2>
-                <p>Credential users are loaded from AUTH_USERS_JSON.</p>
+                <p>Demo accounts for this build are defined in server configuration.</p>
                 <p>Session lifetime is eight hours.</p>
-                <p>Database storage activates when DATABASE_URL is present.</p>
+                <p className="m-0 text-[13px] leading-relaxed text-muted">
+                  Persistence follows the workspace status above — memory mode keeps analyses only until the server restarts;
+                  Postgres with migrations lets uploads and audit rows survive restarts.
+                </p>
               </div>
             </section>
           </section>
         ) : null}
         </section>
       </div>
+
+      <RecruiterOverrideModal
+        key={overrideCandidate?.id ?? "closed"}
+        candidate={overrideCandidate}
+        onClose={() => setOverrideCandidate(null)}
+        refreshRecords={() => void refreshRecords()}
+        onRecordedNotice={(note) => setNotice(note)}
+      />
     </main>
+  );
+}
+
+function RecruiterOverrideModal({
+  candidate,
+  onClose,
+  refreshRecords,
+  onRecordedNotice,
+}: {
+  candidate: CandidateAnalysis | null;
+  onClose: () => void;
+  refreshRecords: () => void | Promise<void>;
+  onRecordedNotice: (note: string) => void;
+}) {
+  if (!candidate) {
+    return null;
+  }
+
+  return (
+    <RecruiterOverrideModalInner
+      candidate={candidate}
+      onClose={onClose}
+      refreshRecords={refreshRecords}
+      onRecordedNotice={onRecordedNotice}
+    />
+  );
+}
+
+function RecruiterOverrideModalInner({
+  candidate,
+  onClose,
+  refreshRecords,
+  onRecordedNotice,
+}: {
+  candidate: CandidateAnalysis;
+  onClose: () => void;
+  refreshRecords: () => void | Promise<void>;
+  onRecordedNotice: (note: string) => void;
+}) {
+  const [promotedRoleId, setPromotedRoleId] = useState(() => candidate.topPositions[0]?.role.id ?? roles[0].id);
+  const [reason, setReason] = useState("Cross-team priority after panel review.");
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setErrorMsg("");
+    try {
+      const response = await fetch("/api/override", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidateId: candidate.id,
+          promotedRole: promotedRoleId,
+          reason,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setErrorMsg(payload.error ?? "Override request failed.");
+        return;
+      }
+      onRecordedNotice(
+        "Recruiter override logged to the audit trail. In this demo it does not alter stored match scores.",
+      );
+      await refreshRecords();
+      onClose();
+    } catch {
+      setErrorMsg("Override request failed unexpectedly.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      aria-labelledby="override-dialog-title"
+      aria-modal="true"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
+      role="dialog"
+      onClick={onClose}
+    >
+      <form
+        className="w-full max-w-md rounded-lg border border-border bg-panel p-5 shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={submit}
+      >
+        <h2 id="override-dialog-title" className="m-0 text-base font-bold text-ink">
+          Flag recruiter override
+        </h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted">
+          This records a decision in the audit log for stakeholders. It does <strong>not</strong> rewrite stored
+          SkillMatch scores yet.
+        </p>
+        <p className="mt-1 text-[12px] text-subtle">
+          Candidate: <span className="font-semibold text-ink">{candidate.candidateName}</span> · file{" "}
+          {candidate.fileName}
+        </p>
+        <label className="role-context mt-4">
+          Promoted role emphasis
+          <select
+            value={promotedRoleId}
+            onChange={(e) => setPromotedRoleId(e.target.value)}
+            required
+            disabled={busy}
+          >
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="role-context mt-3">
+          Reason (shown in audit metadata)
+          <textarea
+            className="min-h-[76px] w-full resize-y rounded-[var(--radius-sm)] border border-border bg-panel px-3 py-2 text-[13px] font-medium text-ink"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            disabled={busy}
+            minLength={3}
+          />
+        </label>
+        {errorMsg ? (
+          <p className="error-message mt-3" role="alert">
+            {errorMsg}
+          </p>
+        ) : null}
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button type="button" className="icon-text-button" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="run-button mt-0 max-w-none min-h-[38px]" disabled={busy}>
+            {busy ? "Recording…" : "Record audit entry"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -746,7 +1167,7 @@ function SkillList({ title, items }: { title: string; items: string[] }) {
           {items.map((skill) => (
             <li key={skill}>
               <span>{skill}</span>
-              <small>Strong</small>
+              <small>Matched</small>
             </li>
           ))}
         </ul>
@@ -793,7 +1214,14 @@ function ReadinessSignals({ result }: { result?: CandidateAnalysis["topPositions
     );
   }
 
-  const { certifications, experience, softSkills } = result.explanationDetails;
+  const details = result.explanationDetails;
+  const experience = details?.experience ?? {
+    candidateYears: result.structured.yearsExperience,
+    minimumYears: result.role.minimumYearsExperience,
+    idealYears: result.role.idealYearsExperience
+  };
+  const certifications = details?.certifications ?? { matched: 0, total: 0 };
+  const softSkills = details?.softSkills ?? { matched: 0, total: 0 };
 
   return (
     <div>
@@ -919,25 +1347,41 @@ function RoleSkillGapChart({
 function SavedTargetRolesPanel({
   currentRoleSaved,
   roles,
+  bookmarkDisabled,
+  bookmarkDisabledReason,
   onRemove,
   onSave,
   onSelect
 }: {
   currentRoleSaved: boolean;
   roles: SavedTargetRole[];
+  bookmarkDisabled?: boolean;
+  bookmarkDisabledReason?: string;
   onRemove: (id: string) => void;
   onSave: () => void;
   onSelect: (roleId: string) => void;
 }) {
   return (
-    <section className="concept-panel saved-target-panel">
+    <section className="concept-panel saved-target-panel" aria-labelledby="saved-target-roles-heading">
       <div className="panel-heading">
-        <h2>Saved Target Roles</h2>
+        <h2 id="saved-target-roles-heading">Saved Target Roles</h2>
         <span>{roles.length}</span>
       </div>
-      <button className="primary-action" type="button" onClick={onSave}>
+      <p id="saved-target-roles-help" className="m-0 mb-3 text-[12px] leading-snug text-muted">
+        Candidates are persisted when you run analysis (see <strong className="font-semibold text-ink">Analyses</strong>).
+        Bookmark the <strong className="font-semibold text-ink">job role</strong> in the header to pin gap tracking and demo
+        learning picks—optional, separate from storing résumés.
+      </p>
+      <button
+        className="primary-action"
+        type="button"
+        onClick={onSave}
+        aria-describedby="saved-target-roles-help"
+        disabled={Boolean(bookmarkDisabled)}
+        title={bookmarkDisabled ? bookmarkDisabledReason : undefined}
+      >
         <BookmarkCheck aria-hidden="true" />
-        {currentRoleSaved ? "Update target progress" : "Save current target"}
+        {currentRoleSaved ? "Refresh bookmark & snapshot" : "Bookmark role for Learning"}
       </button>
       {roles.length ? (
         <ul className="saved-role-list">
@@ -964,7 +1408,7 @@ function SavedTargetRolesPanel({
           ))}
         </ul>
       ) : (
-        <p className="list-placeholder">Save target roles to track skill progress over time.</p>
+        <p className="list-placeholder">Bookmark a role above to unlock Learning progress—not required to keep analyzed candidates.</p>
       )}
     </section>
   );
@@ -1006,7 +1450,10 @@ function SavedRoleProgress({
           ))}
         </div>
       ) : (
-        <EmptyPanel title="No saved target roles" text="Save a role from the dashboard to start tracking employee progress." />
+        <EmptyPanel
+          title="No saved target roles"
+          text="Bookmark a comparison role from the dashboard sidebar to track gap progress on Learning. Uploaded candidates already appear under Analyses—that action only pins the job role for progress, not the résumés."
+        />
       )}
     </section>
   );
@@ -1060,8 +1507,8 @@ function AiInsightPanel({ insight }: { insight: CandidateAnalysis["aiInsight"] }
         </div>
       ) : (
         <p className="list-placeholder">
-          Configure <code>GEMINI_API_KEY</code> (Google AI Studio) on the server to generate a structured narrative after
-          each upload. Skill matching above still runs without it.
+          When optional AI resume review is enabled for your workspace, a structured narrative appears after each upload.
+          Skill matching above still runs without it.
         </p>
       )}
     </section>
@@ -1108,8 +1555,8 @@ function RecentCandidates({ candidates, onSelect }: { candidates: CandidateAnaly
       {candidates.length ? (
         <ul className="recent-list">
           {candidates.slice(0, 4).map((candidate) => (
-            <li key={candidate.id}>
-              <button onClick={() => onSelect(candidate.id)}>
+            <li key={candidate.id} className="recent-list-item">
+              <button type="button" onClick={() => onSelect(candidate.id)}>
                 <FileText aria-hidden="true" />
                 <span>
                   <strong>{candidate.candidateName}</strong>
@@ -1117,11 +1564,14 @@ function RecentCandidates({ candidates, onSelect }: { candidates: CandidateAnaly
                 </span>
                 <ChevronRight aria-hidden="true" />
               </button>
+              <CandidateResumeFileLinks candidate={candidate} />
             </li>
           ))}
         </ul>
       ) : (
-        <p className="list-placeholder">No analyses yet.</p>
+        <p className="list-placeholder">
+          No analyses yet. Upload and process résumés from the Dashboard tab—completed analyses will show up here.
+        </p>
       )}
     </section>
   );
@@ -1145,34 +1595,75 @@ function Metric({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function HistoryTable({ analyses }: { analyses: AnalysisRecord[] }) {
+function HistoryTable({
+  analyses,
+  status,
+}: {
+  analyses: AnalysisRecord[];
+  status: "loading" | "ready" | "forbidden" | "error";
+}) {
   return (
     <section className="concept-panel audit-log-panel">
       <div className="panel-heading">
         <h2>Analysis History</h2>
-        <span>{analyses.length}</span>
+        <span>
+          {status === "forbidden" ? "—" : status === "loading" ? "…" : analyses.length}
+        </span>
       </div>
-      <div className="audit-log-table">
-        <div className="audit-log-row head">
-          <span>Candidate</span>
-          <span>Target Role</span>
-          <span>Score</span>
-          <span>Created</span>
+      {status === "loading" ? (
+        <p className="m-0 text-[13px] text-muted">Loading analysis history…</p>
+      ) : null}
+      {status === "forbidden" ? (
+        <div className="rounded-lg border border-border-strong bg-brand-light px-3 py-3 text-[13px] leading-relaxed text-ink">
+          <strong className="font-semibold">Analysis history is limited by role</strong>
+          <p className="m-0 mt-2 text-muted">
+            Standard employee accounts do not see organization-wide analysis history. Recruiter, hiring manager,
+            learning and development, and system admin roles do. Your SkillMatch overview and candidate cards
+            above still reflect résumés processed in this session.
+          </p>
         </div>
-        {analyses.map((analysis) => (
-          <div className="audit-log-row" key={analysis.id}>
-            <span>{analysis.employeeName}</span>
-            <span>{analysis.targetRole}</span>
-            <span className="status-chip">{analysis.score}%</span>
-            <span>{new Date(analysis.createdAt).toLocaleDateString()}</span>
+      ) : null}
+      {status === "error" ? (
+        <p className="error-message m-0 text-[13px]" role="alert">
+          Could not load analysis history. Use Refresh or try again in a moment.
+        </p>
+      ) : null}
+      {status === "ready" || (status === "error" && analyses.length > 0) ? (
+        <div className="audit-log-table">
+          <div className="audit-log-row head">
+            <span>Candidate</span>
+            <span>Target Role</span>
+            <span>Score</span>
+            <span>Created</span>
           </div>
-        ))}
-      </div>
+          {analyses.map((analysis) => (
+            <div className="audit-log-row" key={analysis.id}>
+              <span>{analysis.employeeName}</span>
+              <span>{analysis.targetRole}</span>
+              <span className="status-chip">{analysis.score}%</span>
+              <span>{new Date(analysis.createdAt).toLocaleDateString()}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {status === "ready" && analyses.length === 0 ? (
+        <p className="m-0 text-[13px] text-muted">
+          No history rows yet—history is appended when uploads save successfully after analysis.
+        </p>
+      ) : null}
     </section>
   );
 }
 
 function AuditTable({ events }: { events: AuditEvent[] }) {
+  if (!events.length) {
+    return (
+      <EmptyPanel
+        title="No audit events yet"
+        text="Login, uploads, recommendations, and recruiter overrides appear here after activity."
+      />
+    );
+  }
   return (
     <div className="audit-log-table">
       <div className="audit-log-row head">

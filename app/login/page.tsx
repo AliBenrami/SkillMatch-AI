@@ -31,12 +31,19 @@ export default function LoginPage() {
 
   return (
     <main className="login-shell">
-      <form action={login} className="login-card">
+      <form
+        className="login-card"
+        method="post"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void login(new FormData(event.currentTarget));
+        }}
+      >
         <div className="brand login-brand">
           <AmazonLogo />
         </div>
         <h1>Talent Match sign in</h1>
-        <p>Use the internal demo credentials configured for this environment.</p>
+        <p>Use the demo credentials provided for this SkillMatch workspace.</p>
 
         <label>
           Email

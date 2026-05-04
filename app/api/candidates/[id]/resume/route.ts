@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canAccess, getSessionUser } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { getCandidateResumeById } from "@/lib/db";
 import { getResumeObject } from "@/lib/storage";
 
@@ -22,13 +22,16 @@ function safeAttachmentName(fileName: string) {
   return trimmed.replace(/[\r\n"]/g, "_");
 }
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser();
-  if (!canAccess(user, "recruiter")) {
-    return NextResponse.json({ error: "Authentication required." }, { status: user ? 403 : 401 });
+  if (!user) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
   const { id } = await params;
+  const wantsInlineView =
+    new URL(request.url).searchParams.get("view") === "1" ||
+    new URL(request.url).searchParams.get("inline") === "1";
 
   const meta = await getCandidateResumeById(id);
   if (!meta) {
@@ -47,12 +50,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       : (fallbackType ?? "application/octet-stream");
 
   const attachmentName = safeAttachmentName(meta.fileName);
+  const disposition =
+    wantsInlineView && contentType === "application/pdf"
+      ? `inline; filename="${attachmentName}"`
+      : `attachment; filename="${attachmentName}"`;
 
   return new NextResponse(Buffer.from(object.bytes), {
     status: 200,
     headers: {
       "Content-Type": contentType,
-      "Content-Disposition": `attachment; filename="${attachmentName}"`
+      "Content-Disposition": disposition
     }
   });
 }

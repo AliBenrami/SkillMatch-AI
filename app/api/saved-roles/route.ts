@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { deleteSavedTargetRole, listSavedTargetRoles, saveTargetRole } from "@/lib/db";
 import { roles } from "@/lib/seed-data";
+import { serverErrorResponse } from "@/lib/server-api-error";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -9,7 +10,11 @@ export async function GET() {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  return NextResponse.json({ savedRoles: await listSavedTargetRoles(user.email) });
+  try {
+    return NextResponse.json({ savedRoles: await listSavedTargetRoles(user.email) });
+  } catch (error) {
+    return serverErrorResponse(error);
+  }
 }
 
 export async function POST(request: Request) {

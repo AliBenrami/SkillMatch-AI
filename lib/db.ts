@@ -1,7 +1,8 @@
 import { and, desc, eq } from "drizzle-orm";
 import { analyses, auditEvents, candidateRecommendations, savedTargetRoles } from "@/db/schema";
 import { getDatabase } from "./database";
-import type { CandidateAnalysis, SkillMatchResult } from "./skillmatch";
+import { matchingConfig } from "./seed-data";
+import type { CandidateAnalysis, CandidatePositionRecommendation, SkillMatchResult } from "./skillmatch";
 
 export type AnalysisRecord = {
   id: string;
@@ -39,11 +40,60 @@ export type CandidateUploadRecord = {
   clusterKey: string;
 };
 
+function normalizeCandidateRecommendation(candidate: CandidateAnalysis): CandidateAnalysis {
+  return {
+    ...candidate,
+    topPositions: candidate.topPositions.map((position) => {
+      const details = position.explanationDetails as Partial<CandidatePositionRecommendation["explanationDetails"]> | undefined;
+      return {
+        ...position,
+        explanationDetails: {
+          ...details,
+          weights: details?.weights ?? matchingConfig.scoringWeights,
+          earnedWeight: details?.earnedWeight ?? 0,
+          possibleWeight: details?.possibleWeight ?? 0,
+          requiredSkills: details?.requiredSkills ?? { matched: 0, total: 0, missing: [] },
+          preferredSkills: details?.preferredSkills ?? { matched: 0, total: 0, missing: [] },
+          softSkills: details?.softSkills ?? { matched: 0, total: 0, missing: [] },
+          certifications: details?.certifications ?? { matched: 0, total: 0, matchedItems: [], missing: [] },
+          experience: details?.experience ?? {
+            candidateYears: position.structured.yearsExperience,
+            minimumYears: position.role.minimumYearsExperience,
+            idealYears: position.role.idealYearsExperience,
+            earnedWeight: 0,
+            meetsMinimum:
+              position.structured.yearsExperience !== null &&
+              position.structured.yearsExperience >= position.role.minimumYearsExperience,
+            meetsIdeal:
+              position.structured.yearsExperience !== null &&
+              position.structured.yearsExperience >= position.role.idealYearsExperience
+          },
+          evidence: details?.evidence ?? [],
+          rankingFactors: details?.rankingFactors ?? []
+        }
+      };
+    })
+  };
+}
+
 const memoryStore: AnalysisRecord[] = [];
 const memoryCandidates: CandidateAnalysis[] = [];
 const memoryCandidateUploads: CandidateUploadRecord[] = [];
 const memoryAuditEvents: AuditEvent[] = [];
 const memorySavedTargetRoles: SavedTargetRole[] = [];
+
+/** Clears in-memory persistence when no DATABASE_URL backend is active (Playwright uses this between tests). */
+export function resetMemoryStoresForE2e(): boolean {
+  if (getDatabase()) {
+    return false;
+  }
+  memoryStore.length = 0;
+  memoryCandidates.length = 0;
+  memoryCandidateUploads.length = 0;
+  memoryAuditEvents.length = 0;
+  memorySavedTargetRoles.length = 0;
+  return true;
+}
 
 function normalizeFilterValue(value: string) {
   return value.trim().toLowerCase();
@@ -426,7 +476,7 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
   const db = getDatabase();
 
   if (!db) {
-    return filterCandidateRecommendations(memoryCandidates, filters).slice(0, 20);
+    return filterCandidateRecommendations(memoryCandidates.map(normalizeCandidateRecommendation), filters).slice(0, 20);
   }
 
   const rows = await db
@@ -444,7 +494,7 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
     .orderBy(desc(candidateRecommendations.createdAt))
     .limit(100);
 
-  const candidates = rows.map((row) => ({
+  const candidates = rows.map((row) => normalizeCandidateRecommendation({
     id: row.id,
     candidateName: row.candidateName,
     fileName: row.fileName,
@@ -453,7 +503,7 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
     aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
     createdAt: row.createdAt.toISOString()
-  })) as CandidateAnalysis[];
+  } as CandidateAnalysis));
 
   return filterCandidateRecommendations(candidates, filters).slice(0, 20);
 }

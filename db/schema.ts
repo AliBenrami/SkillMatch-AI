@@ -1,6 +1,15 @@
 import { sql } from "drizzle-orm";
-import { bigserial, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigserial, check, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import type { ResumeAiInsight } from "@/lib/resume-ai-insight";
+import type { UserRole } from "@/lib/validation";
+
+export const userRole = pgEnum("user_role", [
+  "employee",
+  "recruiter",
+  "hiring_manager",
+  "learning_development",
+  "system_admin"
+] satisfies [UserRole, ...UserRole[]]);
 
 export const users = pgTable(
   "users",
@@ -8,7 +17,7 @@ export const users = pgTable(
     id: uuid("id").primaryKey(),
     name: text("name").notNull(),
     email: text("email").notNull(),
-    role: text("role").notNull(),
+    role: userRole("role").notNull(),
     passwordHash: text("password_hash").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },

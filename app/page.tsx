@@ -8,5 +8,12 @@ export default async function Home() {
     redirect("/login");
   }
 
-  return <Dashboard user={user} />;
+  return (
+    <Dashboard
+      user={user}
+      enableE2eFileHook={
+        process.env.NEXT_PUBLIC_SKILLMATCH_E2E_FILE_HOOK === "1" || process.env.E2E_DISABLE_DATABASE === "1"
+      }
+    />
+  );
 }
