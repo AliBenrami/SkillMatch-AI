@@ -2,7 +2,11 @@ import { matchingConfig, roles, type RoleRequirement } from "./seed-data";
 import type { ResumeAiInsight } from "./resume-ai-insight";
 import { isKnownRoleId } from "./validation";
 
-type SkillSource = "required" | "preferred";
+type SkillSource =
+  | "required-skill"
+  | "preferred-skill"
+  | "required-soft-skill"
+  | "preferred-soft-skill";
 
 export type SkillMatchEvidence = {
   skill: string;
@@ -16,15 +20,34 @@ export type SkillMatchExplanationDetails = {
   weights: typeof matchingConfig.scoringWeights;
   earnedWeight: number;
   possibleWeight: number;
-  required: {
+  requiredSkills: {
     matched: number;
     total: number;
     missing: string[];
   };
-  preferred: {
+  preferredSkills: {
     matched: number;
     total: number;
     missing: string[];
+  };
+  softSkills: {
+    matched: number;
+    total: number;
+    missing: string[];
+  };
+  certifications: {
+    matched: number;
+    total: number;
+    matchedItems: string[];
+    missing: string[];
+  };
+  experience: {
+    candidateYears: number | null;
+    minimumYears: number;
+    idealYears: number;
+    earnedWeight: number;
+    meetsMinimum: boolean;
+    meetsIdeal: boolean;
   };
   evidence: SkillMatchEvidence[];
   rankingFactors: string[];
@@ -37,6 +60,7 @@ export type SkillMatchResult = {
   matchedSkills: string[];
   missingSkills: Array<{
     skill: string;
+    category: "skill" | "soft-skill" | "certification" | "experience";
     importance: "critical" | "important";
     recommendation: string;
   }>;
@@ -70,7 +94,14 @@ export type CandidateAnalysis = {
 };
 
 const canonicalSkills = Array.from(
-  new Set(roles.flatMap((role) => [...role.requiredSkills, ...role.preferredSkills]))
+  new Set(
+    roles.flatMap((role) => [
+      ...role.requiredSkills,
+      ...role.preferredSkills,
+      ...role.requiredSoftSkills,
+      ...role.preferredSoftSkills
+    ])
+  )
 );
 
 const skillVocabulary = canonicalSkills.sort((a, b) => b.length - a.length);
@@ -198,73 +229,255 @@ export function extractStructuredResume(resumeText: string): StructuredResume {
   };
 }
 
+function normalizeIdentifier(value: string) {
+  return normalizeResumeText(value);
+}
+
+function findMatchingCertification(
+  extractedCertifications: string[],
+  certification: string
+) {
+  const normalizedCertification = normalizeIdentifier(certification);
+  return (
+    extractedCertifications.find((item) => {
+      const normalizedItem = normalizeIdentifier(item);
+      return (
+        normalizedItem.includes(normalizedCertification) ||
+        normalizedCertification.includes(normalizedItem)
+      );
+    }) ?? null
+  );
+}
+
+function calculateExperienceWeight(
+  candidateYears: number | null,
+  minimumYears: number,
+  idealYears: number
+) {
+  if (candidateYears === null) {
+    return 0;
+  }
+
+  if (candidateYears >= idealYears) {
+    return matchingConfig.scoringWeights.experience;
+  }
+
+  if (candidateYears >= minimumYears) {
+    if (idealYears <= minimumYears) {
+      return matchingConfig.scoringWeights.experience;
+    }
+
+    const progress = (candidateYears - minimumYears) / (idealYears - minimumYears);
+    return matchingConfig.scoringWeights.experience * (0.75 + progress * 0.25);
+  }
+
+  if (minimumYears <= 0) {
+    return 0;
+  }
+
+  return matchingConfig.scoringWeights.experience * Math.min(candidateYears / minimumYears, 0.5);
+}
+
 export function analyzeResume(resumeText: string, roleId: string): SkillMatchResult {
   const safeRoleId = isKnownRoleId(roleId) ? roleId : roles[0].id;
   const role = roles.find((item) => item.id === safeRoleId) ?? roles[0];
   const structured = extractStructuredResume(resumeText);
   const extractedSkills = structured.skills;
   const extracted = new Set(extractedSkills);
-  const allRoleSkills = [...role.requiredSkills, ...role.preferredSkills];
-  const matchedSkills = allRoleSkills.filter((skill) => extracted.has(skill));
-  const missingRequired = role.requiredSkills.filter((skill) => !extracted.has(skill));
-  const missingPreferred = role.preferredSkills.filter((skill) => !extracted.has(skill));
-  const { required: requiredSkillWeight, preferred: preferredSkillWeight } = matchingConfig.scoringWeights;
+  const skillAndSoftSkillTargets = [
+    ...role.requiredSkills,
+    ...role.preferredSkills,
+    ...role.requiredSoftSkills,
+    ...role.preferredSoftSkills
+  ];
+  const matchedSkills = skillAndSoftSkillTargets.filter((skill) => extracted.has(skill));
+  const missingRequiredSkills = role.requiredSkills.filter((skill) => !extracted.has(skill));
+  const missingPreferredSkills = role.preferredSkills.filter((skill) => !extracted.has(skill));
+  const missingRequiredSoftSkills = role.requiredSoftSkills.filter((skill) => !extracted.has(skill));
+  const missingPreferredSoftSkills = role.preferredSoftSkills.filter((skill) => !extracted.has(skill));
+  const matchedRequiredCertifications = role.requiredCertifications
+    .map((certification) => findMatchingCertification(structured.certifications, certification))
+    .filter((certification): certification is string => Boolean(certification));
+  const matchedPreferredCertifications = role.preferredCertifications
+    .map((certification) => findMatchingCertification(structured.certifications, certification))
+    .filter((certification): certification is string => Boolean(certification));
+  const missingRequiredCertifications = role.requiredCertifications.filter(
+    (certification) => !findMatchingCertification(structured.certifications, certification)
+  );
+  const missingPreferredCertifications = role.preferredCertifications.filter(
+    (certification) => !findMatchingCertification(structured.certifications, certification)
+  );
+  const {
+    requiredSkill,
+    preferredSkill,
+    requiredCertification,
+    preferredCertification,
+    experience,
+    requiredSoftSkill,
+    preferredSoftSkill
+  } = matchingConfig.scoringWeights;
 
-  const requiredWeight = role.requiredSkills.length * requiredSkillWeight;
-  const preferredWeight = role.preferredSkills.length * preferredSkillWeight;
+  const possibleWeight =
+    role.requiredSkills.length * requiredSkill +
+    role.preferredSkills.length * preferredSkill +
+    role.requiredCertifications.length * requiredCertification +
+    role.preferredCertifications.length * preferredCertification +
+    experience +
+    role.requiredSoftSkills.length * requiredSoftSkill +
+    role.preferredSoftSkills.length * preferredSoftSkill;
   const earned =
-    role.requiredSkills.filter((skill) => extracted.has(skill)).length * requiredSkillWeight +
-    role.preferredSkills.filter((skill) => extracted.has(skill)).length * preferredSkillWeight;
-  const possibleWeight = requiredWeight + preferredWeight;
+    (role.requiredSkills.length - missingRequiredSkills.length) * requiredSkill +
+    (role.preferredSkills.length - missingPreferredSkills.length) * preferredSkill +
+    matchedRequiredCertifications.length * requiredCertification +
+    matchedPreferredCertifications.length * preferredCertification +
+    calculateExperienceWeight(
+      structured.yearsExperience,
+      role.minimumYearsExperience,
+      role.idealYearsExperience
+    ) +
+    (role.requiredSoftSkills.length - missingRequiredSoftSkills.length) * requiredSoftSkill +
+    (role.preferredSoftSkills.length - missingPreferredSoftSkills.length) * preferredSoftSkill;
   const score = possibleWeight > 0 ? Math.round((earned / possibleWeight) * 100) : 0;
 
   const normalizedResume = normalizeResumeText(resumeText);
-  const evidence = allRoleSkills
+  const evidence = skillAndSoftSkillTargets
     .filter((skill) => extracted.has(skill))
     .map((skill) => {
-      const source: SkillSource = role.requiredSkills.includes(skill) ? "required" : "preferred";
+      const source: SkillSource = role.requiredSkills.includes(skill)
+        ? "required-skill"
+        : role.preferredSkills.includes(skill)
+          ? "preferred-skill"
+          : role.requiredSoftSkills.includes(skill)
+            ? "required-soft-skill"
+            : "preferred-soft-skill";
       const terms = skillTerms.get(skill) ?? [skill];
       return {
         skill,
         matchedText: findMatchedTerm(normalizedResume, skill) ?? skill,
         snippet: findEvidenceSnippet(resumeText, terms),
         source,
-        weight: source === "required" ? requiredSkillWeight : preferredSkillWeight
+        weight:
+          source === "required-skill"
+            ? requiredSkill
+            : source === "preferred-skill"
+              ? preferredSkill
+              : source === "required-soft-skill"
+                ? requiredSoftSkill
+                : preferredSoftSkill
       };
     });
 
   const missingSkills = [
-    ...missingRequired.map((skill) => ({
+    ...missingRequiredSkills.map((skill) => ({
       skill,
+      category: "skill" as const,
       importance: "critical" as const,
       recommendation: role.learning[skill] ?? `Complete focused training for ${skill}.`
     })),
-    ...missingPreferred.map((skill) => ({
+    ...missingPreferredSkills.map((skill) => ({
       skill,
+      category: "skill" as const,
       importance: "important" as const,
       recommendation: role.learning[skill] ?? `Review applied ${skill} practice.`
-    }))
+    })),
+    ...missingRequiredSoftSkills.map((skill) => ({
+      skill,
+      category: "soft-skill" as const,
+      importance: "critical" as const,
+      recommendation: role.learning[skill] ?? `Practice role-relevant examples that demonstrate ${skill}.`
+    })),
+    ...missingPreferredSoftSkills.map((skill) => ({
+      skill,
+      category: "soft-skill" as const,
+      importance: "important" as const,
+      recommendation: role.learning[skill] ?? `Strengthen evidence of ${skill} through recent projects.`
+    })),
+    ...missingRequiredCertifications.map((skill) => ({
+      skill,
+      category: "certification" as const,
+      importance: "critical" as const,
+      recommendation: role.learning[skill] ?? `Complete the certification path for ${skill}.`
+    })),
+    ...missingPreferredCertifications.map((skill) => ({
+      skill,
+      category: "certification" as const,
+      importance: "important" as const,
+      recommendation: role.learning[skill] ?? `Consider adding ${skill} to strengthen role readiness.`
+    })),
+    ...(structured.yearsExperience !== null && structured.yearsExperience >= role.minimumYearsExperience
+      ? []
+      : [
+          {
+            skill: `${role.minimumYearsExperience}+ years of experience`,
+            category: "experience" as const,
+            importance: "critical" as const,
+            recommendation: `Build more directly relevant experience toward the ${role.minimumYearsExperience}-year baseline for ${role.title}.`
+          }
+        ]),
+    ...(structured.yearsExperience !== null && structured.yearsExperience >= role.idealYearsExperience
+      ? []
+      : [
+          {
+            skill: `${role.idealYearsExperience}+ years of experience`,
+            category: "experience" as const,
+            importance: "important" as const,
+            recommendation: `Continue building depth toward the ${role.idealYearsExperience}-year target for stronger leveling confidence.`
+          }
+        ])
   ];
 
+  const experienceWeight = calculateExperienceWeight(
+    structured.yearsExperience,
+    role.minimumYearsExperience,
+    role.idealYearsExperience
+  );
   const explanationDetails: SkillMatchExplanationDetails = {
     weights: matchingConfig.scoringWeights,
     earnedWeight: earned,
     possibleWeight,
-    required: {
-      matched: role.requiredSkills.length - missingRequired.length,
+    requiredSkills: {
+      matched: role.requiredSkills.length - missingRequiredSkills.length,
       total: role.requiredSkills.length,
-      missing: missingRequired
+      missing: missingRequiredSkills
     },
-    preferred: {
-      matched: role.preferredSkills.length - missingPreferred.length,
+    preferredSkills: {
+      matched: role.preferredSkills.length - missingPreferredSkills.length,
       total: role.preferredSkills.length,
-      missing: missingPreferred
+      missing: missingPreferredSkills
+    },
+    softSkills: {
+      matched:
+        role.requiredSoftSkills.length +
+        role.preferredSoftSkills.length -
+        missingRequiredSoftSkills.length -
+        missingPreferredSoftSkills.length,
+      total: role.requiredSoftSkills.length + role.preferredSoftSkills.length,
+      missing: [...missingRequiredSoftSkills, ...missingPreferredSoftSkills]
+    },
+    certifications: {
+      matched: matchedRequiredCertifications.length + matchedPreferredCertifications.length,
+      total: role.requiredCertifications.length + role.preferredCertifications.length,
+      matchedItems: [...matchedRequiredCertifications, ...matchedPreferredCertifications],
+      missing: [...missingRequiredCertifications, ...missingPreferredCertifications]
+    },
+    experience: {
+      candidateYears: structured.yearsExperience,
+      minimumYears: role.minimumYearsExperience,
+      idealYears: role.idealYearsExperience,
+      earnedWeight: experienceWeight,
+      meetsMinimum:
+        structured.yearsExperience !== null && structured.yearsExperience >= role.minimumYearsExperience,
+      meetsIdeal:
+        structured.yearsExperience !== null && structured.yearsExperience >= role.idealYearsExperience
     },
     evidence,
     rankingFactors: [
-      `${role.requiredSkills.length - missingRequired.length}/${role.requiredSkills.length} required skills matched`,
-      `${role.preferredSkills.length - missingPreferred.length}/${role.preferredSkills.length} preferred skills matched`,
-      `${earned}/${possibleWeight} weighted points earned`
+      `${role.requiredSkills.length - missingRequiredSkills.length}/${role.requiredSkills.length} required hard skills matched`,
+      `${role.preferredSkills.length - missingPreferredSkills.length}/${role.preferredSkills.length} preferred hard skills matched`,
+      `${role.requiredSoftSkills.length + role.preferredSoftSkills.length - missingRequiredSoftSkills.length - missingPreferredSoftSkills.length}/${role.requiredSoftSkills.length + role.preferredSoftSkills.length} soft skills matched`,
+      `${matchedRequiredCertifications.length + matchedPreferredCertifications.length}/${role.requiredCertifications.length + role.preferredCertifications.length} certifications matched`,
+      `Experience signal contributed ${experienceWeight.toFixed(2)}/${experience} weighted points`,
+      `${earned.toFixed(2)}/${possibleWeight} weighted points earned`
     ]
   };
 
@@ -275,7 +488,7 @@ export function analyzeResume(resumeText: string, roleId: string): SkillMatchRes
     matchedSkills,
     missingSkills,
     score,
-    explanation: `Score is based on configurable weighted overlap with ${role.title}: required skills count ${requiredSkillWeight}x, preferred skills count ${preferredSkillWeight}x. ${explanationDetails.required.matched} of ${role.requiredSkills.length} required skills and ${explanationDetails.preferred.matched} of ${role.preferredSkills.length} preferred skills matched (${earned}/${possibleWeight} weighted points). Evidence snippets are captured for matched skills, and demographic contact signals are masked before recommendation review.`,
+    explanation: `Score is based on configurable weighted overlap with ${role.title}: required hard skills count ${requiredSkill}x, preferred hard skills count ${preferredSkill}x, required certifications count ${requiredCertification}x, preferred certifications count ${preferredCertification}x, experience contributes ${experience} points, and soft skills count ${requiredSoftSkill}x/${preferredSoftSkill}x. ${explanationDetails.requiredSkills.matched} of ${role.requiredSkills.length} required hard skills, ${explanationDetails.preferredSkills.matched} of ${role.preferredSkills.length} preferred hard skills, ${explanationDetails.softSkills.matched} of ${explanationDetails.softSkills.total} soft skills, and ${explanationDetails.certifications.matched} of ${explanationDetails.certifications.total} certifications matched. Candidate experience is ${structured.yearsExperience ?? "unknown"} years against a ${role.minimumYearsExperience}-${role.idealYearsExperience}+ year target (${earned.toFixed(2)}/${possibleWeight} weighted points). Evidence snippets are captured for matched competencies, and demographic contact signals are masked before recommendation review.`,
     explanationDetails
   };
 }
