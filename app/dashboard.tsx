@@ -13,8 +13,10 @@ import {
   FileText,
   GraduationCap,
   LayoutDashboard,
+  LockKeyhole,
   Search,
   LogOut,
+  RefreshCw,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
@@ -28,6 +30,7 @@ import {
 } from "lucide-react";
 import { roles, type RoleRequirement } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
+import { canAccessArea } from "@/lib/auth-permissions";
 import type {
   AnalysisRecord,
   AuditEvent,
@@ -52,6 +55,7 @@ type SkillGapChartItem = {
 };
 
 type View = "dashboard" | "analyses" | "learning" | "workforce" | "audit" | "settings";
+type LoadStatus = "loading" | "ready" | "forbidden" | "error";
 
 const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -61,6 +65,52 @@ const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "audit", label: "Audit Log", icon: ShieldCheck },
   { id: "settings", label: "Settings", icon: Settings }
 ];
+
+function canOpenView(user: SessionUser, view: View) {
+  if (view === "analyses") {
+    return canAccessArea(user, "recruiter") || canAccessArea(user, "learning");
+  }
+  if (view === "learning") {
+    return canAccessArea(user, "learning");
+  }
+  if (view === "workforce") {
+    return canAccessArea(user, "recruiter");
+  }
+  if (view === "audit") {
+    return canAccessArea(user, "admin");
+  }
+  return true;
+}
+
+function getRestrictedViewCopy(view: View) {
+  if (view === "analyses") {
+    return {
+      title: "Analyses",
+      text: "Recruiters, hiring managers, learning and development, and system administrators can view organization-wide analysis history."
+    };
+  }
+  if (view === "learning") {
+    return {
+      title: "Learning",
+      text: "Learning and development or system administrator access is required to assign modules to saved candidate resumes."
+    };
+  }
+  if (view === "workforce") {
+    return {
+      title: "Workforce",
+      text: "Recruiter, hiring manager, or system administrator access is required for workforce-level role coverage."
+    };
+  }
+  return {
+    title: "Audit Log",
+    text: "System administrators can view login, upload, recommendation, and recruiter override events."
+  };
+}
+
+async function readApiError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => ({}))) as { error?: string };
+  return payload.error ?? fallback;
+}
 
 function fileKey(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
@@ -121,10 +171,15 @@ export default function Dashboard({
   const [selectedLearningCandidateId, setSelectedLearningCandidateId] = useState<string>("");
   const [learningAssignmentStatus, setLearningAssignmentStatus] = useState<"idle" | "saving">("idle");
   const [isUploading, setIsUploading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [notice, setNotice] = useState("");
-  const [analysisHistoryStatus, setAnalysisHistoryStatus] = useState<
-    "loading" | "ready" | "forbidden" | "error"
-  >("loading");
+  const [refreshError, setRefreshError] = useState("");
+  const [candidateStatus, setCandidateStatus] = useState<LoadStatus>("loading");
+  const [analysisHistoryStatus, setAnalysisHistoryStatus] = useState<LoadStatus>("loading");
+  const [savedRolesStatus, setSavedRolesStatus] = useState<LoadStatus>("loading");
+  const [auditStatus, setAuditStatus] = useState<LoadStatus>(
+    canAccessArea(user, "admin") ? "loading" : "forbidden"
+  );
   const [query, setQuery] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [educationFilter, setEducationFilter] = useState("");
@@ -154,6 +209,9 @@ export default function Dashboard({
   const bestRecommendation = selectedRoleMatch ?? selectedCandidate?.topPositions[0];
   const selectedResult = selectedRoleMatch ?? bestRecommendation;
   const savedCurrentRole = savedRoles.find((role) => role.roleId === roleId);
+  const userCanViewAnalysisHistory = canAccessArea(user, "recruiter") || canAccessArea(user, "learning");
+  const userCanViewAudit = canAccessArea(user, "admin");
+  const activeViewAllowed = canOpenView(user, view);
 
   const workforceGaps = useMemo(() => {
     const counts = new Map<string, number>();
@@ -224,76 +282,158 @@ export default function Dashboard({
       }
 
       const candidateQuery = candidateParams.size ? `?${candidateParams.toString()}` : "";
-      const auditRequest = user.role === "system_admin" ? fetch("/api/audit") : Promise.resolve(null);
-
       const skipCandidates = Boolean(options?.skipCandidates);
-      const [candidateResponse, analysisResponse, savedRolesResponse, auditResponse] = await Promise.all([
-        skipCandidates ? Promise.resolve(null) : fetch(`/api/candidates${candidateQuery}`),
-        fetch("/api/analyses"),
-        fetch("/api/saved-roles"),
-        auditRequest
-      ]);
+      const errors: string[] = [];
 
-      if (candidateResponse) {
-        if (candidateResponse.ok) {
-          const payload = (await candidateResponse.json()) as { candidates: CandidateAnalysis[] };
-          setCandidates(payload.candidates);
-          setSelectedCandidateId((current) => {
-            const ids = new Set(payload.candidates.map((c) => c.id));
-            if (!payload.candidates.length) {
-              return "";
-            }
-            if (current && ids.has(current)) {
-              return current;
-            }
-            return payload.candidates[0]!.id;
-          });
-          setSelectedLearningCandidateId((current) => {
-            const ids = new Set(payload.candidates.map((c) => c.id));
-            if (!payload.candidates.length) {
-              return "";
-            }
-            if (current && ids.has(current)) {
-              return current;
-            }
-            return payload.candidates[0]!.id;
-          });
-        } else {
-          const payload = (await candidateResponse.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          setNotice(payload.error ?? `Could not load candidates (HTTP ${candidateResponse.status}).`);
+      setIsRefreshing(true);
+      setRefreshError("");
+      if (!skipCandidates) {
+        setCandidateStatus("loading");
+      }
+      setAnalysisHistoryStatus(userCanViewAnalysisHistory ? "loading" : "forbidden");
+      setSavedRolesStatus("loading");
+      setAuditStatus(userCanViewAudit ? "loading" : "forbidden");
+
+      try {
+        const [candidateResponse, analysisResponse, savedRolesResponse, auditResponse] = await Promise.all([
+          skipCandidates ? Promise.resolve(null) : fetch(`/api/candidates${candidateQuery}`),
+          userCanViewAnalysisHistory ? fetch("/api/analyses") : Promise.resolve(null),
+          fetch("/api/saved-roles"),
+          userCanViewAudit ? fetch("/api/audit") : Promise.resolve(null)
+        ]);
+
+        if (candidateResponse) {
+          if (candidateResponse.ok) {
+            const payload = (await candidateResponse.json()) as { candidates: CandidateAnalysis[] };
+            setCandidates(payload.candidates);
+            setCandidateStatus("ready");
+            setSelectedCandidateId((current) => {
+              const ids = new Set(payload.candidates.map((c) => c.id));
+              if (!payload.candidates.length) {
+                return "";
+              }
+              if (current && ids.has(current)) {
+                return current;
+              }
+              return payload.candidates[0]!.id;
+            });
+            setSelectedLearningCandidateId((current) => {
+              const ids = new Set(payload.candidates.map((c) => c.id));
+              if (!payload.candidates.length) {
+                return "";
+              }
+              if (current && ids.has(current)) {
+                return current;
+              }
+              return payload.candidates[0]!.id;
+            });
+          } else if (candidateResponse.status === 403) {
+            setCandidateStatus("forbidden");
+            errors.push("Candidate records are restricted for this role.");
+          } else {
+            setCandidateStatus("error");
+            errors.push(
+              await readApiError(
+                candidateResponse,
+                `Could not load candidates (HTTP ${candidateResponse.status}).`
+              )
+            );
+          }
         }
-      }
 
-      if (analysisResponse.ok) {
-        const payload = (await analysisResponse.json()) as { analyses: AnalysisRecord[] };
-        setAnalyses(payload.analyses);
-        setAnalysisHistoryStatus("ready");
-      } else if (analysisResponse.status === 403) {
-        setAnalyses([]);
-        setAnalysisHistoryStatus("forbidden");
-      } else {
-        setAnalysisHistoryStatus("error");
-      }
+        if (analysisResponse) {
+          if (analysisResponse.ok) {
+            const payload = (await analysisResponse.json()) as { analyses: AnalysisRecord[] };
+            setAnalyses(payload.analyses);
+            setAnalysisHistoryStatus("ready");
+          } else if (analysisResponse.status === 403) {
+            setAnalyses([]);
+            setAnalysisHistoryStatus("forbidden");
+            if (userCanViewAnalysisHistory) {
+              errors.push("Analysis history access was denied unexpectedly.");
+            }
+          } else {
+            setAnalysisHistoryStatus("error");
+            errors.push(
+              await readApiError(
+                analysisResponse,
+                `Could not load analysis history (HTTP ${analysisResponse.status}).`
+              )
+            );
+          }
+        } else {
+          setAnalyses([]);
+        }
 
-      if (savedRolesResponse.ok) {
-        const payload = (await savedRolesResponse.json()) as { savedRoles: SavedTargetRole[] };
-        setSavedRoles(payload.savedRoles);
-      } else {
-        const payload = (await savedRolesResponse.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        setNotice(payload.error ?? `Could not load saved roles (HTTP ${savedRolesResponse.status}).`);
-      }
+        if (savedRolesResponse.ok) {
+          const payload = (await savedRolesResponse.json()) as { savedRoles: SavedTargetRole[] };
+          setSavedRoles(payload.savedRoles);
+          setSavedRolesStatus("ready");
+        } else {
+          setSavedRolesStatus("error");
+          errors.push(
+            await readApiError(
+              savedRolesResponse,
+              `Could not load saved target roles (HTTP ${savedRolesResponse.status}).`
+            )
+          );
+        }
 
-      if (auditResponse?.ok) {
-        const payload = (await auditResponse.json()) as { events: AuditEvent[] };
-        setAuditEvents(payload.events);
-      }
+        if (auditResponse) {
+          if (auditResponse.ok) {
+            const payload = (await auditResponse.json()) as { events: AuditEvent[] };
+            setAuditEvents(payload.events);
+            setAuditStatus("ready");
+          } else if (auditResponse.status === 403) {
+            setAuditEvents([]);
+            setAuditStatus("forbidden");
+            if (userCanViewAudit) {
+              errors.push("Audit log access was denied unexpectedly.");
+            }
+          } else {
+            setAuditStatus("error");
+            errors.push(
+              await readApiError(
+                auditResponse,
+                `Could not load audit log (HTTP ${auditResponse.status}).`
+              )
+            );
+          }
+        } else {
+          setAuditEvents([]);
+        }
 
+        if (errors.length) {
+          const message = errors.join(" ");
+          setRefreshError(message);
+          setNotice(message);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not refresh dashboard data.";
+        setRefreshError(message);
+        setNotice(message);
+        if (!skipCandidates) {
+          setCandidateStatus("error");
+        }
+        if (userCanViewAnalysisHistory) {
+          setAnalysisHistoryStatus("error");
+        }
+        setSavedRolesStatus("error");
+        if (userCanViewAudit) {
+          setAuditStatus("error");
+        }
+      } finally {
+        setIsRefreshing(false);
+      }
     },
-    [educationFilter, locationFilter, minYearsFilter, skillFilter, user.role]
+    [
+      educationFilter,
+      locationFilter,
+      minYearsFilter,
+      skillFilter,
+      userCanViewAnalysisHistory,
+      userCanViewAudit
+    ]
   );
 
   useEffect(() => {
@@ -532,8 +672,7 @@ export default function Dashboard({
 
   const matchedSkills = selectedResult?.matchedSkills ?? [];
   const missingSkills = selectedResult?.missingSkills ?? [];
-  const userCanSubmitRecruiterOverride =
-    user.role === "recruiter" || user.role === "hiring_manager" || user.role === "system_admin";
+  const userCanSubmitRecruiterOverride = canAccessArea(user, "recruiter");
 
   return (
     <main className="product-shell">
@@ -559,11 +698,16 @@ export default function Dashboard({
             <button
               className="icon-text-button"
               type="button"
-              disabled={isUploading}
-              title={isUploading ? "Wait for upload to finish before refreshing." : "Reload candidates, bookmarks, and analysis history"}
+              disabled={isUploading || isRefreshing}
+              title={
+                isUploading
+                  ? "Wait for upload to finish before refreshing."
+                  : "Reload candidates, bookmarks, analysis history, and audit data"
+              }
               onClick={() => void refreshRecords()}
             >
-              Refresh data
+              <RefreshCw aria-hidden="true" />
+              {isRefreshing ? "Refreshing..." : "Refresh data"}
             </button>
             <span className="session-meta">
               {user.name}
@@ -579,23 +723,44 @@ export default function Dashboard({
         <nav className="top-nav" aria-label="Sections">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const allowed = canOpenView(user, item.id);
             return (
               <button
-                className={`top-nav-item ${view === item.id ? "active" : ""}`}
+                className={`top-nav-item ${view === item.id ? "active" : ""} ${allowed ? "" : "restricted"}`}
                 key={item.id}
                 type="button"
+                title={allowed ? undefined : getRestrictedViewCopy(item.id).text}
                 onClick={() => setView(item.id)}
               >
                 <Icon aria-hidden="true" />
                 {item.label}
+                {allowed ? null : <LockKeyhole aria-hidden="true" className="restricted-nav-icon" />}
               </button>
             );
           })}
         </nav>
 
         <section className="main-product">
+        {isRefreshing ? (
+          <div className="refresh-status" role="status" aria-live="polite">
+            <RefreshCw aria-hidden="true" />
+            Refreshing workspace data...
+          </div>
+        ) : null}
+        {refreshError ? (
+          <div className="refresh-alert" role="alert">
+            <AlertTriangle aria-hidden="true" />
+            <span>{refreshError}</span>
+            <button className="icon-text-button" type="button" disabled={isRefreshing} onClick={() => void refreshRecords()}>
+              <RefreshCw aria-hidden="true" />
+              Retry
+            </button>
+          </div>
+        ) : null}
 
-        {view === "dashboard" ? (
+        {!activeViewAllowed ? <RestrictedView user={user} view={view} /> : null}
+
+        {activeViewAllowed && view === "dashboard" ? (
           <>
             <section className="concept-grid">
               <section className="concept-panel upload-panel">
@@ -763,6 +928,7 @@ export default function Dashboard({
                 <SavedTargetRolesPanel
                   currentRoleSaved={Boolean(savedCurrentRole)}
                   roles={savedRoles}
+                  status={savedRolesStatus}
                   bookmarkDisabled={!selectedResult}
                   bookmarkDisabledReason="Run analysis on at least one résumé to snapshot match scores for this role."
                   onRemove={removeSavedRole}
@@ -780,14 +946,17 @@ export default function Dashboard({
           </>
         ) : null}
 
-        {view === "analyses" ? (
+        {activeViewAllowed && view === "analyses" ? (
           <section className="screen-stack">
             <div className="screen-toolbar">
               <label className="search-box">
                 <Search aria-hidden="true" />
                 <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search candidates" />
               </label>
-              <button className="icon-text-button" onClick={() => void refreshRecords()}>Refresh</button>
+              <button className="icon-text-button" disabled={isRefreshing} onClick={() => void refreshRecords()}>
+                <RefreshCw aria-hidden="true" />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
+              </button>
             </div>
             <div className="filter-toolbar" aria-label="Candidate filters">
               <label>
@@ -814,7 +983,26 @@ export default function Dashboard({
               </label>
             </div>
             <section className="data-grid">
-              {filteredCandidates.map((candidate) => (
+              {candidateStatus === "loading" ? (
+                <LoadingPanel
+                  title="Loading candidates"
+                  text="Refreshing saved candidate recommendations and filters."
+                />
+              ) : null}
+              {candidateStatus === "error" ? (
+                <ErrorPanel
+                  title="Could not load candidates"
+                  text="The candidate list did not refresh. Existing cards stay visible if they were already loaded."
+                  onRetry={() => void refreshRecords()}
+                />
+              ) : null}
+              {candidateStatus === "forbidden" ? (
+                <EmptyPanel
+                  title="Candidate records are restricted"
+                  text="Your current role cannot view saved candidate recommendations."
+                />
+              ) : null}
+              {candidateStatus !== "loading" && candidateStatus !== "forbidden" ? filteredCandidates.map((candidate) => (
                 <article className="candidate-card" key={candidate.id}>
                   <div className="panel-heading">
                     <h2>{candidate.candidateName}</h2>
@@ -841,8 +1029,8 @@ export default function Dashboard({
                     </button>
                   ) : null}
                 </article>
-              ))}
-              {!filteredCandidates.length ? (
+              )) : null}
+              {candidateStatus === "ready" && !filteredCandidates.length ? (
                 candidates.length > 0 ? (
                   <EmptyPanel
                     title="No matching candidates"
@@ -861,11 +1049,16 @@ export default function Dashboard({
                 )
               ) : null}
             </section>
-            <HistoryTable analyses={analyses} status={analysisHistoryStatus} />
+            <HistoryTable
+              analyses={analyses}
+              isRefreshing={isRefreshing}
+              onRetry={() => void refreshRecords()}
+              status={analysisHistoryStatus}
+            />
           </section>
         ) : null}
 
-        {view === "learning" ? (
+        {activeViewAllowed && view === "learning" ? (
           <section className="screen-stack">
             <div className="screen-toolbar">
               <label className="role-context learning-resume-picker">
@@ -886,8 +1079,9 @@ export default function Dashboard({
                   )}
                 </select>
               </label>
-              <button className="icon-text-button" type="button" onClick={() => void refreshRecords()}>
-                Refresh
+              <button className="icon-text-button" type="button" disabled={isRefreshing} onClick={() => void refreshRecords()}>
+                <RefreshCw aria-hidden="true" />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
               </button>
             </div>
             <section className="metric-grid">
@@ -904,16 +1098,22 @@ export default function Dashboard({
               onToggle={(moduleId, assigned) => void assignLearningModule(moduleId, assigned)}
               role={selectedRole}
             />
-            <SavedRoleProgress roles={savedRoles} onRemove={removeSavedRole} onSelect={setRoleId} />
+            <SavedRoleProgress
+              roles={savedRoles}
+              status={savedRolesStatus}
+              onRemove={removeSavedRole}
+              onSelect={setRoleId}
+            />
           </section>
         ) : null}
 
-        {view === "workforce" ? (
+        {activeViewAllowed && view === "workforce" ? (
           <section className="screen-stack">
             <div className="screen-toolbar">
               <span className="text-[13px] text-muted">Counts reflect analyzed candidates from this workspace.</span>
-              <button className="icon-text-button" type="button" onClick={() => void refreshRecords()}>
-                Refresh
+              <button className="icon-text-button" type="button" disabled={isRefreshing} onClick={() => void refreshRecords()}>
+                <RefreshCw aria-hidden="true" />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
               </button>
             </div>
             <section className="metric-grid">
@@ -1010,7 +1210,7 @@ export default function Dashboard({
           </section>
         ) : null}
 
-        {view === "audit" ? (
+        {activeViewAllowed && view === "audit" ? (
           <section className="screen-stack">
             <section className="concept-panel audit-log-panel">
               <div className="panel-heading">
@@ -1020,11 +1220,12 @@ export default function Dashboard({
               {user.role === "system_admin" ? (
                 <>
                   <div className="mb-3 flex flex-wrap justify-end gap-2">
-                    <button className="icon-text-button" type="button" onClick={() => void refreshRecords()}>
-                      Refresh log
+                    <button className="icon-text-button" type="button" disabled={isRefreshing} onClick={() => void refreshRecords()}>
+                      <RefreshCw aria-hidden="true" />
+                      {isRefreshing ? "Refreshing..." : "Refresh log"}
                     </button>
                   </div>
-                  <AuditTable events={auditEvents} />
+                  <AuditTable events={auditEvents} isRefreshing={isRefreshing} onRetry={() => void refreshRecords()} status={auditStatus} />
                 </>
               ) : (
                 <EmptyPanel
@@ -1036,7 +1237,7 @@ export default function Dashboard({
           </section>
         ) : null}
 
-        {view === "settings" ? (
+        {activeViewAllowed && view === "settings" ? (
           <section className="screen-stack">
             <section className="concept-panel settings-grid">
               <div>
@@ -1403,6 +1604,7 @@ function RoleSkillGapChart({
 function SavedTargetRolesPanel({
   currentRoleSaved,
   roles,
+  status,
   bookmarkDisabled,
   bookmarkDisabledReason,
   onRemove,
@@ -1411,6 +1613,7 @@ function SavedTargetRolesPanel({
 }: {
   currentRoleSaved: boolean;
   roles: SavedTargetRole[];
+  status: LoadStatus;
   bookmarkDisabled?: boolean;
   bookmarkDisabledReason?: string;
   onRemove: (id: string) => void;
@@ -1421,7 +1624,7 @@ function SavedTargetRolesPanel({
     <section className="concept-panel saved-target-panel" aria-labelledby="saved-target-roles-heading">
       <div className="panel-heading">
         <h2 id="saved-target-roles-heading">Saved Target Roles</h2>
-        <span>{roles.length}</span>
+        <span>{status === "loading" ? "..." : roles.length}</span>
       </div>
       <p id="saved-target-roles-help" className="m-0 mb-3 text-[12px] leading-snug text-muted">
         Candidates are persisted when you run analysis (see <strong className="font-semibold text-ink">Analyses</strong>).
@@ -1439,7 +1642,17 @@ function SavedTargetRolesPanel({
         <BookmarkCheck aria-hidden="true" />
         {currentRoleSaved ? "Refresh bookmark & snapshot" : "Bookmark role for Learning"}
       </button>
-      {roles.length ? (
+      {status === "loading" ? (
+        <p className="list-placeholder" role="status">
+          Loading saved target roles...
+        </p>
+      ) : null}
+      {status === "error" ? (
+        <p className="error-message" role="alert">
+          Could not load saved target roles. Use Refresh to try again.
+        </p>
+      ) : null}
+      {status !== "loading" && roles.length ? (
         <ul className="saved-role-list">
           {roles.slice(0, 3).map((role) => (
             <li key={role.id}>
@@ -1463,19 +1676,21 @@ function SavedTargetRolesPanel({
             </li>
           ))}
         </ul>
-      ) : (
+      ) : status === "ready" && !roles.length ? (
         <p className="list-placeholder">Bookmark a role above to unlock Learning progress—not required to keep analyzed candidates.</p>
-      )}
+      ) : null}
     </section>
   );
 }
 
 function SavedRoleProgress({
   roles,
+  status,
   onRemove,
   onSelect
 }: {
   roles: SavedTargetRole[];
+  status: LoadStatus;
   onRemove: (id: string) => void;
   onSelect: (roleId: string) => void;
 }) {
@@ -1483,9 +1698,19 @@ function SavedRoleProgress({
     <section className="concept-panel">
       <div className="panel-heading">
         <h2>Target Role Progress</h2>
-        <span>{roles.length ? "Employee plan" : "No saved targets"}</span>
+        <span>{status === "loading" ? "Loading" : roles.length ? "Employee plan" : "No saved targets"}</span>
       </div>
-      {roles.length ? (
+      {status === "loading" ? (
+        <p className="list-placeholder" role="status">
+          Loading target roles...
+        </p>
+      ) : null}
+      {status === "error" ? (
+        <p className="error-message" role="alert">
+          Could not load target role progress. Use Refresh to try again.
+        </p>
+      ) : null}
+      {status !== "loading" && roles.length ? (
         <div className="saved-progress-grid">
           {roles.map((role) => (
             <article key={role.id}>
@@ -1505,12 +1730,12 @@ function SavedRoleProgress({
             </article>
           ))}
         </div>
-      ) : (
-        <EmptyPanel
-          title="No saved target roles"
-          text="Bookmark a comparison role from the dashboard sidebar to track gap progress on Learning. Uploaded candidates already appear under Analyses—that action only pins the job role for progress, not the résumés."
-        />
-      )}
+      ) : status === "ready" && !roles.length ? (
+        <p className="list-placeholder">
+          No saved target roles yet. Bookmark a comparison role from the dashboard sidebar to track gap progress on
+          Learning. Uploaded candidates already appear under Analyses; that action only pins the job role for progress.
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -1706,6 +1931,54 @@ function EmptyPanel({ title, text }: { title: string; text: string }) {
   );
 }
 
+function LoadingPanel({ title, text }: { title: string; text: string }) {
+  return (
+    <article className="concept-panel empty-panel loading-panel" role="status" aria-live="polite">
+      <RefreshCw aria-hidden="true" />
+      <h2>{title}</h2>
+      <p>{text}</p>
+    </article>
+  );
+}
+
+function ErrorPanel({
+  title,
+  text,
+  onRetry,
+}: {
+  title: string;
+  text: string;
+  onRetry: () => void;
+}) {
+  return (
+    <article className="concept-panel empty-panel error-panel" role="alert">
+      <AlertTriangle aria-hidden="true" />
+      <h2>{title}</h2>
+      <p>{text}</p>
+      <button className="icon-text-button" type="button" onClick={onRetry}>
+        <RefreshCw aria-hidden="true" />
+        Retry
+      </button>
+    </article>
+  );
+}
+
+function RestrictedView({ user, view }: { user: SessionUser; view: View }) {
+  const copy = getRestrictedViewCopy(view);
+  return (
+    <section className="screen-stack">
+      <article className="concept-panel restricted-panel">
+        <LockKeyhole aria-hidden="true" />
+        <div>
+          <h2>{copy.title}</h2>
+          <p>{copy.text}</p>
+          <span>Current role: {user.role.replace("_", " ")}</span>
+        </div>
+      </article>
+    </section>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <article className="concept-panel metric-card">
@@ -1717,10 +1990,14 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 
 function HistoryTable({
   analyses,
+  isRefreshing,
+  onRetry,
   status,
 }: {
   analyses: AnalysisRecord[];
-  status: "loading" | "ready" | "forbidden" | "error";
+  isRefreshing: boolean;
+  onRetry: () => void;
+  status: LoadStatus;
 }) {
   return (
     <section className="concept-panel audit-log-panel">
@@ -1744,9 +2021,13 @@ function HistoryTable({
         </div>
       ) : null}
       {status === "error" ? (
-        <p className="error-message m-0 text-[13px]" role="alert">
-          Could not load analysis history. Use Refresh or try again in a moment.
-        </p>
+        <div className="error-message m-0 flex flex-wrap items-center justify-between gap-2 text-[13px]" role="alert">
+          <span>Could not load analysis history. Try again in a moment.</span>
+          <button className="icon-text-button" type="button" disabled={isRefreshing} onClick={onRetry}>
+            <RefreshCw aria-hidden="true" />
+            {isRefreshing ? "Refreshing..." : "Retry history"}
+          </button>
+        </div>
       ) : null}
       {status === "ready" || (status === "error" && analyses.length > 0) ? (
         <div className="audit-log-table">
@@ -1775,7 +2056,40 @@ function HistoryTable({
   );
 }
 
-function AuditTable({ events }: { events: AuditEvent[] }) {
+function AuditTable({
+  events,
+  isRefreshing,
+  onRetry,
+  status,
+}: {
+  events: AuditEvent[];
+  isRefreshing: boolean;
+  onRetry: () => void;
+  status: LoadStatus;
+}) {
+  if (status === "loading") {
+    return <LoadingPanel title="Loading audit events" text="Refreshing the latest admin audit trail." />;
+  }
+
+  if (status === "forbidden") {
+    return (
+      <EmptyPanel
+        title="Audit log restricted"
+        text="System administrator access is required for login, upload, recommendation, and override events."
+      />
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <ErrorPanel
+        title="Could not load audit log"
+        text="The audit log refresh failed. Existing events stay visible if they were already loaded."
+        onRetry={onRetry}
+      />
+    );
+  }
+
   if (!events.length) {
     return (
       <EmptyPanel
@@ -1785,7 +2099,7 @@ function AuditTable({ events }: { events: AuditEvent[] }) {
     );
   }
   return (
-    <div className="audit-log-table">
+    <div className="audit-log-table" aria-busy={isRefreshing}>
       <div className="audit-log-row head">
         <span>Date & Time</span>
         <span>Action</span>

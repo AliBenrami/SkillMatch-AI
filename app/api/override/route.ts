@@ -5,6 +5,9 @@ import { overrideRequestSchema, parseJsonRequestBody } from "@/lib/validation";
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  }
   if (!canAccess(user, "recruiter")) {
     return NextResponse.json({ error: "Recruiter access required." }, { status: 403 });
   }
@@ -13,7 +16,7 @@ export async function POST(request: Request) {
   if (!data) {
     if (error === "Malformed JSON body.") {
       await appendAuditEvent({
-        actor: user!.email,
+        actor: user.email,
         action: "recruiter_override",
         details: { reason: "malformed_json" }
       });
@@ -23,7 +26,7 @@ export async function POST(request: Request) {
   }
 
   await appendAuditEvent({
-    actor: user!.email,
+    actor: user.email,
     action: "recruiter_override",
     entityId: data.candidateId,
     details: {

@@ -62,7 +62,9 @@ test("allows signed-out users to open signup", async ({ page }) => {
 
   await expect(page).toHaveURL(/\/signup$/);
   await expect(page.getByRole("heading", { name: "Create Talent Match account" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
+  await expect(page.getByText("Signup is not available in demo memory mode.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Go to sign in" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create account" })).toBeDisabled();
 });
 
 test("requires credential sign-in, uploads a PDF resume, and ranks positions", async ({ page }) => {

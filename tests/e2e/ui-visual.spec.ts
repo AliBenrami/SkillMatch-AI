@@ -54,6 +54,7 @@ test("captures auth and dashboard screens for visual review", async ({ page, bro
 
   await page.goto("/signup");
   await expect(page.getByRole("heading", { name: "Create Talent Match account" })).toBeVisible();
+  await expect(page.getByText("Signup is not available in demo memory mode.")).toBeVisible();
   await page.screenshot({
     path: path.join(shotDir, `02-signup-${tag}.png`),
     fullPage: true

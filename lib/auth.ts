@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import type { SessionUser } from "./auth-model";
+import { canAccessArea, type AccessArea } from "./auth-permissions";
 import { getAuthConfig } from "./env";
 import { sessionUserSchema, signedSessionPayloadSchema } from "./validation";
 
@@ -101,18 +102,6 @@ export async function clearSessionUser() {
   cookieStore.delete(cookieName);
 }
 
-export function canAccess(user: SessionUser | null, area: "admin" | "recruiter" | "learning") {
-  if (!user) {
-    return false;
-  }
-
-  if (area === "admin") {
-    return user.role === "system_admin";
-  }
-
-  if (area === "learning") {
-    return user.role === "learning_development" || user.role === "system_admin";
-  }
-
-  return ["recruiter", "hiring_manager", "system_admin"].includes(user.role);
+export function canAccess(user: SessionUser | null, area: AccessArea) {
+  return canAccessArea(user, area);
 }

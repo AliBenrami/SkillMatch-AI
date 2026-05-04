@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { canAccess, createSessionToken, parseSessionToken } from "@/lib/auth";
 import { createPasswordHash, verifyCredentials, type SessionUser } from "@/lib/auth-model";
+import { canAccessArea } from "@/lib/auth-permissions";
 
 const admin: SessionUser = {
   name: "Admin",
@@ -119,6 +120,13 @@ describe("auth and RBAC", () => {
     expect(canAccess(admin, "admin")).toBe(true);
     expect(canAccess({ ...admin, role: "employee" }, "admin")).toBe(false);
     expect(canAccess({ ...admin, role: "recruiter" }, "recruiter")).toBe(true);
+  });
+
+  it("shares the same role permissions with client-safe access checks", () => {
+    expect(canAccessArea({ role: "hiring_manager" }, "recruiter")).toBe(true);
+    expect(canAccessArea({ role: "learning_development" }, "learning")).toBe(true);
+    expect(canAccessArea({ role: "recruiter" }, "learning")).toBe(false);
+    expect(canAccessArea({ role: "learning_development" }, "admin")).toBe(false);
   });
 
   it("verifies configured credential users", async () => {
