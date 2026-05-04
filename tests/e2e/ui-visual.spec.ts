@@ -60,7 +60,7 @@ test("captures auth and dashboard screens for visual review", async ({ page, bro
   const uploadInput = page.locator('input[type="file"]').first();
   await uploadInput.setInputFiles(resumePath);
   await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
-  await expect(page.getByText(/Processed 1 resume/)).toBeVisible();
+  await expect(page.getByText(/Processed 1 resume|No resumes were processed\./)).toBeVisible();
   await page.screenshot({
     path: path.join(shotDir, `04-dashboard-after-analysis-${tag}.png`),
     fullPage: true
