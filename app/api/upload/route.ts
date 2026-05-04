@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { buildCandidateDuplicateIdentity, saveAnalysis, saveCandidateBatch, type CandidateDuplicateWarning } from "@/lib/db";
 import { extractResumeText } from "@/lib/resume-parser";
+import { generateResumeAiInsight, getResumeAiInsightConfig } from "@/lib/resume-ai-insight";
 import { analyzeCandidateResume, inferCandidateName, type CandidateAnalysis } from "@/lib/skillmatch";
 import { storeResumeFile } from "@/lib/storage";
 
@@ -113,6 +114,22 @@ export async function POST(request: Request) {
         fileName: file.name,
         error: error instanceof Error ? error.message : "Unknown parsing failure"
       });
+    }
+  }
+
+  const aiConfig = getResumeAiInsightConfig();
+  if (aiConfig) {
+    for (const { candidate } of uploadOutputs) {
+      try {
+        candidate.aiInsight = await generateResumeAiInsight({
+          config: aiConfig,
+          maskedResumeText: candidate.structured.biasMaskedText,
+          topRoleTitles: candidate.topPositions.slice(0, 4).map((position) => position.role.title),
+          candidateLabel: candidate.candidateName
+        });
+      } catch {
+        candidate.aiInsight = null;
+      }
     }
   }
 
