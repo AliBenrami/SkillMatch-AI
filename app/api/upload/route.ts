@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { buildCandidateDuplicateIdentity, saveAnalysis, saveCandidateBatch, type CandidateDuplicateWarning } from "@/lib/db";
+import {
+  buildCandidateDuplicateIdentity,
+  saveAnalysis,
+  saveCandidateBatch,
+  type CandidateDuplicateWarning,
+} from "@/lib/db";
 import { extractResumeText } from "@/lib/resume-parser";
 import { generateResumeAiInsight, getResumeAiInsightConfig } from "@/lib/resume-ai-insight";
-import { analyzeCandidateResume, inferCandidateName, type CandidateAnalysis } from "@/lib/skillmatch";
+import {
+  analyzeCandidateResume,
+  inferCandidateName,
+  type CandidateAnalysis,
+} from "@/lib/skillmatch";
+import { isAllowedResumeUpload } from "@/lib/resume-upload-validation";
 import { storeResumeFile } from "@/lib/storage";
 
 const maxFiles = 12;
 const maxFileSize = 8 * 1024 * 1024;
-const allowedResumeExtensions = /\.(pdf|docx|txt)$/i;
-const allowedResumeTypes = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/plain",
-  ""
-]);
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -35,14 +38,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Upload ${maxFiles} resumes or fewer at a time.` }, { status: 400 });
   }
 
-  const candidates = [];
+  const candidates: CandidateAnalysis[] = [];
   const uploadOutputs: {
     candidate: CandidateAnalysis;
     resumeText: string;
     duplicateKey: string;
     clusterKey: string;
   }[] = [];
-  const failures = [];
+  const failures: Array<{ fileName: string; error: string }> = [];
   const duplicates: CandidateDuplicateWarning[] = [];
   const seenDuplicateKeys = new Set<string>();
   const seenClusterKeys = new Set<string>();
@@ -53,7 +56,7 @@ export async function POST(request: Request) {
         throw new Error("File exceeds 8 MB limit.");
       }
 
-      if (!allowedResumeExtensions.test(file.name) || !allowedResumeTypes.has(file.type)) {
+      if (!isAllowedResumeUpload(file.name, file.type)) {
         throw new Error("Only PDF, DOCX, or TXT resumes are supported.");
       }
 
@@ -66,7 +69,7 @@ export async function POST(request: Request) {
       const { duplicateKey, clusterKey } = buildCandidateDuplicateIdentity({
         candidateName,
         fileName: file.name,
-        resumeText: parsed.text
+        resumeText: parsed.text,
       });
 
       if (seenDuplicateKeys.has(duplicateKey)) {
@@ -77,7 +80,7 @@ export async function POST(request: Request) {
           fileName: file.name,
           duplicateKey,
           clusterKey,
-          message: "Skipped duplicate resume upload in the same batch."
+          message: "Skipped duplicate resume upload in the same batch.",
         });
         continue;
       }
@@ -90,7 +93,7 @@ export async function POST(request: Request) {
           fileName: file.name,
           duplicateKey,
           clusterKey,
-          message: "Candidate is clustered with another resume in the same upload batch."
+          message: "Candidate is clustered with another resume in the same upload batch.",
         });
       }
 
@@ -100,19 +103,19 @@ export async function POST(request: Request) {
       const stored = await storeResumeFile({
         fileName: file.name,
         contentType: file.type || "application/octet-stream",
-        bytes: parsed.bytes
+        bytes: parsed.bytes,
       });
       const candidate = analyzeCandidateResume({
         fileName: file.name,
         resumeText: parsed.text,
-        storageUrl: stored.url
+        storageUrl: stored.url,
       });
       candidates.push(candidate);
       uploadOutputs.push({ candidate, resumeText: parsed.text, duplicateKey, clusterKey });
     } catch (error) {
       failures.push({
         fileName: file.name,
-        error: error instanceof Error ? error.message : "Unknown parsing failure"
+        error: error instanceof Error ? error.message : "Unknown parsing failure",
       });
     }
   }
@@ -125,7 +128,7 @@ export async function POST(request: Request) {
           config: aiConfig,
           maskedResumeText: candidate.structured.biasMaskedText,
           topRoleTitles: candidate.topPositions.slice(0, 4).map((position) => position.role.title),
-          candidateLabel: candidate.candidateName
+          candidateLabel: candidate.candidateName,
         });
       } catch {
         candidate.aiInsight = null;
@@ -133,10 +136,19 @@ export async function POST(request: Request) {
     }
   }
 
-  if (candidates.length) {
+  if (!candidates.length) {
+    return NextResponse.json({ candidates, duplicates, failures });
+  }
+
+  let persistError: string | undefined;
+  let responseCandidates = candidates;
+
+  try {
     const saved = await saveCandidateBatch({ actor: user.email, uploads: uploadOutputs });
-    const savedCandidateIds = new Set(saved.candidates.map((candidate) => candidate.id));
+    responseCandidates = saved.candidates;
     duplicates.push(...saved.duplicates);
+
+    const savedCandidateIds = new Set(saved.candidates.map((candidate) => candidate.id));
 
     for (const { candidate, resumeText } of uploadOutputs) {
       if (!savedCandidateIds.has(candidate.id)) {
@@ -149,13 +161,29 @@ export async function POST(request: Request) {
           employeeName: candidate.candidateName,
           resumeText,
           result: best,
-          recordAudit: false
+          recordAudit: false,
         });
       }
     }
-
-    return NextResponse.json({ candidates: saved.candidates, duplicates, failures });
+  } catch (error) {
+    persistError =
+      error instanceof Error ? error.message : "Failed to save resumes.";
   }
 
-  return NextResponse.json({ candidates, duplicates, failures });
+  const body: {
+    candidates: CandidateAnalysis[];
+    duplicates: CandidateDuplicateWarning[];
+    failures: typeof failures;
+    persistError?: string;
+  } = {
+    candidates: responseCandidates,
+    duplicates,
+    failures,
+  };
+
+  if (persistError) {
+    body.persistError = persistError;
+  }
+
+  return NextResponse.json(body);
 }

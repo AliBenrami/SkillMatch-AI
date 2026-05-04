@@ -5,6 +5,8 @@ import PDFDocument from "pdfkit";
 
 const fixtureDir = path.join(process.cwd(), "tests", "fixtures");
 const resumePath = path.join(fixtureDir, "alex-smith-sde-resume.pdf");
+/** Distinct résumé body so MIME smoke test avoids duplicate detection after alex-smith upload. */
+const octetStreamPdfPath = path.join(fixtureDir, "morgan-rivera-streaming-mime.pdf");
 const shortResumePath = path.join(fixtureDir, "empty-resume.txt");
 
 function createResumePdf() {
@@ -18,9 +20,23 @@ function createResumePdf() {
   doc.end();
 }
 
+function createDistinctResumePdfForMimeTest() {
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  const doc = new PDFDocument();
+  doc.pipe(fs.createWriteStream(octetStreamPdfPath));
+  doc.text("Morgan Rivera");
+  doc.text("Backend engineer specializing in Rust and Go.");
+  doc.text("Skills: Rust, Go, PostgreSQL, gRPC, Kubernetes, Prometheus, Kafka.");
+  doc.text("Certification: Certified Kubernetes Administrator.");
+  doc.end();
+}
+
 test.beforeAll(() => {
   if (!fs.existsSync(resumePath)) {
     createResumePdf();
+  }
+  if (!fs.existsSync(octetStreamPdfPath)) {
+    createDistinctResumePdfForMimeTest();
   }
   if (!fs.existsSync(shortResumePath)) {
     fs.writeFileSync(shortResumePath, "Too short.");
@@ -68,6 +84,31 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
   await expect(page.getByText("Recommended Positions")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Role Skill-Gap Chart" })).toBeVisible();
   await expect(page.locator(".skill-gap-chart").getByText("system design")).toBeVisible();
+});
+
+test("accepts PDF when the browser reports application/octet-stream", async ({ page }) => {
+  const uploadInput = page.getByLabel("Upload resume files");
+  const notice = page.locator(".notice");
+
+  await page.context().clearCookies();
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
+  await page.getByLabel("Password").fill("SkillMatchDemo!23");
+  await page.getByRole("button", { name: /^sign in$/i }).click();
+  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
+
+  const buffer = await fs.promises.readFile(octetStreamPdfPath);
+  await uploadInput.setInputFiles({
+    buffer,
+    mimeType: "application/octet-stream",
+    name: "streaming-resume.pdf"
+  });
+
+  await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
+  await expect(notice).toHaveText(/Processed 1 resume/);
+  await expect(page.getByRole("button", { name: /Morgan Rivera/i }).first()).toBeVisible();
 });
 
 test("keeps failed upload state visible after processing", async ({ page }) => {

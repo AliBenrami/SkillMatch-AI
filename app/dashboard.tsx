@@ -28,12 +28,19 @@ import {
 } from "lucide-react";
 import { roles } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
-import type { AnalysisRecord, AuditEvent, SavedTargetRole } from "@/lib/db";
+import type {
+  AnalysisRecord,
+  AuditEvent,
+  CandidateDuplicateWarning,
+  SavedTargetRole,
+} from "@/lib/db";
 import type { CandidateAnalysis } from "@/lib/skillmatch";
 
 type UploadResponse = {
   candidates: CandidateAnalysis[];
   failures: Array<{ fileName: string; error: string }>;
+  duplicates?: CandidateDuplicateWarning[];
+  persistError?: string;
 };
 
 type SkillGapChartItem = {
@@ -95,6 +102,8 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8);
   }, [candidates]);
+
+  const workforceGapMeterMax = Math.max(files.length, candidates.length, 5);
 
   const skillGapChartItems = useMemo<SkillGapChartItem[]>(() => {
     if (!selectedResult) {
@@ -219,30 +228,77 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     const formData = new FormData();
     files.forEach((file) => formData.append("resumes", file));
 
-    const response = await fetch("/api/upload", {
-      method: "POST",
-      body: formData
-    });
-    const payload = (await response.json()) as UploadResponse | { error: string };
+    try {
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        credentials: "same-origin",
+        body: formData,
+      });
 
-    if (!response.ok) {
-      setNotice("error" in payload ? payload.error : "Upload failed.");
+      const contentType = response.headers.get("content-type") ?? "";
+
+      let payload: unknown;
+
+      if (contentType.includes("application/json")) {
+        try {
+          payload = await response.json();
+        } catch {
+          setNotice(`Upload failed (${response.status}). The server returned invalid JSON.`);
+          return;
+        }
+      } else {
+        const text = await response.text();
+        const snippet = text.trim().slice(0, 200);
+        setNotice(
+          snippet
+            ? `Upload failed (${response.status}). ${snippet}`
+            : `Upload failed (${response.status}).`,
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        const errBody = payload as { error?: string };
+        setNotice(errBody.error ?? `Upload failed (${response.status}).`);
+        return;
+      }
+
+      const uploadPayload = payload as UploadResponse;
+      setCandidates((current) => [...uploadPayload.candidates, ...current]);
+      setSelectedCandidateId(uploadPayload.candidates[0]?.id ?? selectedCandidateId);
+      setFailures(uploadPayload.failures);
+
+      const duplicates = uploadPayload.duplicates ?? [];
+      const dupPhrase =
+        duplicates.length > 0
+          ? duplicates.length === 1
+            ? ` 1 duplicate or cluster warning.`
+            : ` ${duplicates.length} duplicate or cluster warnings.`
+          : "";
+
+      const persistWarn = uploadPayload.persistError?.trim();
+      let message =
+        uploadPayload.candidates.length > 0
+          ? `Processed ${uploadPayload.candidates.length} resume${uploadPayload.candidates.length === 1 ? "" : "s"}.${dupPhrase}`
+          : `No resumes were processed.${dupPhrase}`;
+      if (persistWarn) {
+        message +=
+          uploadPayload.candidates.length > 0
+            ? ` Results were analyzed but could not be saved: ${persistWarn}`
+            : ` ${persistWarn}`;
+      }
+      setNotice(message);
+
+      setFiles([]);
+
+      if (!persistWarn) {
+        void refreshRecords();
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Upload failed unexpectedly.");
+    } finally {
       setIsUploading(false);
-      return;
     }
-
-    const uploadPayload = payload as UploadResponse;
-    setCandidates((current) => [...uploadPayload.candidates, ...current]);
-    setSelectedCandidateId(uploadPayload.candidates[0]?.id ?? selectedCandidateId);
-    setFailures(uploadPayload.failures);
-    setFiles([]);
-    setNotice(
-      uploadPayload.candidates.length
-        ? `Processed ${uploadPayload.candidates.length} resume${uploadPayload.candidates.length === 1 ? "" : "s"}.`
-        : "No resumes were processed."
-    );
-    setIsUploading(false);
-    void refreshRecords();
   }
 
   async function saveCurrentTargetRole() {
@@ -576,29 +632,67 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                 ))}
               </div>
             </section>
-            <section className="concept-panel">
-              <div className="panel-heading">
-                <h2>Common skill gaps</h2>
-                <span>{selectedRole.title}</span>
+            <section className="flex flex-col gap-4 rounded-lg border border-border bg-panel p-4 shadow-md md:p-[clamp(1rem,1.15vw,1.125rem)]">
+              <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-border pb-3">
+                <h2 className="m-0 text-[15px] font-bold tracking-tight text-[#0f172a]">Common skill gaps</h2>
+                <span className="max-w-xs text-end text-xs font-semibold leading-snug text-muted sm:max-w-sm">
+                  {selectedRole.title}
+                </span>
               </div>
-              <p className="panel-lead">
+              <p className="m-0 text-[13px] leading-relaxed text-muted">
                 Aggregated missing skills from recent analyses (when available).
               </p>
-              <div className="gap-bars">
+              <div className="flex flex-col gap-3">
                 {(workforceGaps.length
                   ? workforceGaps
-                  : selectedRole.requiredSkills.slice(0, 5).map((skill, index) => [skill, 5 - index] as [string, number])
+                  : selectedRole.requiredSkills
+                      .slice(0, 5)
+                      .map((skill, index) => [skill, 5 - index] as [string, number])
                 ).map(([skill, count]) => (
-                  <div key={skill}>
-                    <span>{skill}</span>
-                    <meter value={Number(count)} min={0} max={Math.max(files.length, candidates.length, 5)} />
-                    <strong>{Number(count)}</strong>
+                  <div
+                    key={skill}
+                    className="grid grid-cols-1 items-center gap-x-4 gap-y-2 min-[460px]:grid-cols-[minmax(7rem,8.5rem)_minmax(0,1fr)_2.75rem]"
+                  >
+                    <span className="truncate text-[13px] font-medium capitalize text-ink min-[460px]:row-auto">
+                      {skill}
+                    </span>
+                    <meter
+                      className="col-span-full min-h-[6px] w-full min-w-0 appearance-none min-[460px]:col-auto"
+                      value={Number(count)}
+                      min={0}
+                      max={workforceGapMeterMax}
+                    />
+                    <strong className="text-left text-[13px] font-bold tabular-nums text-muted min-[460px]:text-end">
+                      {Number(count)}
+                    </strong>
                   </div>
                 ))}
               </div>
-              <div className="system-health-inline">
-                <Activity aria-hidden="true" />
-                <span>Processing queue: {isUploading ? files.length : 0} job(s)</span>
+              <div
+                role="status"
+                aria-live="polite"
+                aria-busy={isUploading && files.length > 0}
+                className="mt-0.5 flex items-start gap-3 border-t border-border pt-3"
+              >
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-panel text-subtle ring-1 ring-border"
+                  aria-hidden={true}
+                >
+                  <Activity className="size-[17px]" strokeWidth={2} />
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="text-[12px] font-bold uppercase tracking-wide text-subtle">Processing queue</span>
+                  <p className="m-0 text-[13px] font-medium leading-snug text-ink">
+                    {isUploading && files.length > 0 ? (
+                      <>
+                        <span className="font-semibold text-brand">{files.length}</span> resume upload
+                        {files.length === 1 ? "" : "s"} in progress.
+                      </>
+                    ) : (
+                      <span className="text-muted">Idle — nothing queued right now.</span>
+                    )}
+                  </p>
+                </div>
               </div>
             </section>
           </section>
