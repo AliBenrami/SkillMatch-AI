@@ -43,6 +43,7 @@ export type CandidateUploadRecord = {
 function normalizeCandidateRecommendation(candidate: CandidateAnalysis): CandidateAnalysis {
   return {
     ...candidate,
+    assignedLearningModules: candidate.assignedLearningModules ?? [],
     topPositions: candidate.topPositions.map((position) => {
       const details = position.explanationDetails as Partial<CandidatePositionRecommendation["explanationDetails"]> | undefined;
       return {
@@ -455,6 +456,7 @@ export async function saveCandidateBatch(input: {
       structuredResume: upload.candidate.structured,
       topPositions: upload.candidate.topPositions,
       aiInsight: upload.candidate.aiInsight,
+      assignedLearningModules: upload.candidate.assignedLearningModules,
       bestRoleTitle: best?.role.title ?? "No match",
       bestScore: best?.score ?? 0
     });
@@ -488,6 +490,7 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
       structured: candidateRecommendations.structuredResume,
       topPositions: candidateRecommendations.topPositions,
       aiInsight: candidateRecommendations.aiInsight,
+      assignedLearningModules: candidateRecommendations.assignedLearningModules,
       createdAt: candidateRecommendations.createdAt
     })
     .from(candidateRecommendations)
@@ -502,10 +505,84 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
     structured: row.structured as CandidateAnalysis["structured"],
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
     aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
+    assignedLearningModules: row.assignedLearningModules as string[],
     createdAt: row.createdAt.toISOString()
   } as CandidateAnalysis));
 
   return filterCandidateRecommendations(candidates, filters).slice(0, 20);
+}
+
+export async function assignCandidateLearningModules(input: {
+  actor: string;
+  candidateId: string;
+  moduleIds: string[];
+}) {
+  const assignedLearningModules = Array.from(new Set(input.moduleIds.map((id) => id.trim()).filter(Boolean)));
+  const db = getDatabase();
+
+  if (!db) {
+    const candidate = memoryCandidates.find((item) => item.id === input.candidateId);
+    if (!candidate) {
+      return null;
+    }
+    candidate.assignedLearningModules = assignedLearningModules;
+    const upload = memoryCandidateUploads.find((item) => item.candidate.id === input.candidateId);
+    if (upload) {
+      upload.candidate.assignedLearningModules = assignedLearningModules;
+    }
+    await appendAuditEvent({
+      actor: input.actor,
+      action: "learning_modules_assigned",
+      entityId: input.candidateId,
+      details: { moduleIds: assignedLearningModules, mode: "local_memory" }
+    });
+    return normalizeCandidateRecommendation(candidate);
+  }
+
+  const rows = await db
+    .select({
+      id: candidateRecommendations.id,
+      candidateName: candidateRecommendations.candidateName,
+      fileName: candidateRecommendations.fileName,
+      storageUrl: candidateRecommendations.storageUrl,
+      structured: candidateRecommendations.structuredResume,
+      topPositions: candidateRecommendations.topPositions,
+      aiInsight: candidateRecommendations.aiInsight,
+      assignedLearningModules: candidateRecommendations.assignedLearningModules,
+      createdAt: candidateRecommendations.createdAt
+    })
+    .from(candidateRecommendations)
+    .where(eq(candidateRecommendations.id, input.candidateId))
+    .limit(1);
+
+  if (!rows.length) {
+    return null;
+  }
+
+  await db
+    .update(candidateRecommendations)
+    .set({ assignedLearningModules })
+    .where(eq(candidateRecommendations.id, input.candidateId));
+
+  await appendAuditEvent({
+    actor: input.actor,
+    action: "learning_modules_assigned",
+    entityId: input.candidateId,
+    details: { moduleIds: assignedLearningModules, mode: "database" }
+  });
+
+  const row = rows[0];
+  return normalizeCandidateRecommendation({
+    id: row.id,
+    candidateName: row.candidateName,
+    fileName: row.fileName,
+    storageUrl: row.storageUrl,
+    structured: row.structured as CandidateAnalysis["structured"],
+    topPositions: row.topPositions as CandidateAnalysis["topPositions"],
+    aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
+    assignedLearningModules,
+    createdAt: row.createdAt.toISOString()
+  } as CandidateAnalysis);
 }
 
 export async function getCandidateResumeById(candidateId: string) {

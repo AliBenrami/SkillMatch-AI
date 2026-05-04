@@ -36,6 +36,13 @@
       "when": 1778010000000,
       "tag": "0004_enforce_user_role",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778020000000,
+      "tag": "0005_candidate_learning_modules",
+      "breakpoints": true
     }
   ]
 }
