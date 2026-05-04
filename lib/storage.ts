@@ -137,16 +137,15 @@ export async function storeResumeFile(input: {
   const storageConfig = getStorageConfig();
 
   if (client && storageConfig.provider === "r2") {
+    // R2 S3 API does not support SSE-S3 (x-amz-server-side-encryption); omit it.
+    const asciiName = safeFileName(input.fileName).slice(0, 900);
     await client.send(
       new PutObjectCommand({
         Bucket: storageConfig.bucket,
         Key: key,
         Body: input.bytes,
         ContentType: input.contentType,
-        ServerSideEncryption: "AES256",
-        Metadata: {
-          originalFileName: input.fileName
-        }
+        Metadata: asciiName ? { originalfilename: asciiName } : undefined
       })
     );
 

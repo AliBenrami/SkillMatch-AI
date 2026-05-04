@@ -448,6 +448,9 @@ export async function saveCandidateBatch(input: {
 
   for (const upload of savedUploads) {
     const best = upload.candidate.topPositions[0];
+    const rawScore = best?.score;
+    const bestScore =
+      typeof rawScore === "number" && Number.isFinite(rawScore) ? clampScore(rawScore, 0, 100) : 0;
     await db.insert(candidateRecommendations).values({
       id: upload.candidate.id,
       candidateName: upload.candidate.candidateName,
@@ -458,7 +461,7 @@ export async function saveCandidateBatch(input: {
       aiInsight: upload.candidate.aiInsight,
       assignedLearningModules: upload.candidate.assignedLearningModules,
       bestRoleTitle: best?.role.title ?? "No match",
-      bestScore: best?.score ?? 0
+      bestScore
     });
   }
 
