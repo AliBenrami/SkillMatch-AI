@@ -2,7 +2,7 @@ import type { SessionUser } from "./auth-model";
 
 export type AccessArea = "admin" | "recruiter" | "learning";
 
-export function canAccessArea(user: Pick<SessionUser, "role"> | null, area: AccessArea) {
+export function canAccess(user: Pick<SessionUser, "role"> | null, area: AccessArea) {
   if (!user) {
     return false;
   }
@@ -17,3 +17,5 @@ export function canAccessArea(user: Pick<SessionUser, "role"> | null, area: Acce
 
   return ["recruiter", "hiring_manager", "system_admin"].includes(user.role);
 }
+
+export const canAccessArea = canAccess;

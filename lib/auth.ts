@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import type { SessionUser } from "./auth-model";
-import { canAccessArea, type AccessArea } from "./auth-permissions";
+import { canAccess as canAccessByArea, type AccessArea } from "./auth-permissions";
 import { getAuthConfig } from "./env";
 import { sessionUserSchema, signedSessionPayloadSchema } from "./validation";
 
@@ -103,5 +103,5 @@ export async function clearSessionUser() {
 }
 
 export function canAccess(user: SessionUser | null, area: AccessArea) {
-  return canAccessArea(user, area);
+  return canAccessByArea(user, area);
 }

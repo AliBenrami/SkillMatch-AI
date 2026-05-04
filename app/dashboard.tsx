@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { roles, type RoleRequirement } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
-import { canAccessArea } from "@/lib/auth-permissions";
+import { canAccess, type AccessArea } from "@/lib/auth-permissions";
 import type {
   AnalysisRecord,
   AuditEvent,
@@ -56,30 +56,36 @@ type SkillGapChartItem = {
 
 type View = "dashboard" | "analyses" | "learning" | "workforce" | "audit" | "settings";
 type LoadStatus = "loading" | "ready" | "forbidden" | "error";
+type NavAccess = "all" | "candidate_analysis" | AccessArea;
 
-const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "analyses", label: "Analyses", icon: BarChart3 },
-  { id: "learning", label: "Learning", icon: BookOpen },
-  { id: "workforce", label: "Workforce", icon: Users },
-  { id: "audit", label: "Audit Log", icon: ShieldCheck },
-  { id: "settings", label: "Settings", icon: Settings }
+const navItems: Array<{ id: View; label: string; icon: LucideIcon; access: NavAccess }> = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, access: "all" },
+  { id: "analyses", label: "Analyses", icon: BarChart3, access: "candidate_analysis" },
+  { id: "learning", label: "Learning", icon: BookOpen, access: "learning" },
+  { id: "workforce", label: "Workforce", icon: Users, access: "recruiter" },
+  { id: "audit", label: "Audit Log", icon: ShieldCheck, access: "admin" },
+  { id: "settings", label: "Settings", icon: Settings, access: "all" }
 ];
 
+const viewIds = new Set<View>(navItems.map((item) => item.id));
+
+function parseView(value?: string): View | null {
+  return value && viewIds.has(value as View) ? (value as View) : null;
+}
+
+function canOpenAccess(user: SessionUser, access: NavAccess) {
+  if (access === "all") {
+    return true;
+  }
+  if (access === "candidate_analysis") {
+    return canAccess(user, "recruiter") || canAccess(user, "learning");
+  }
+
+  return canAccess(user, access);
+}
+
 function canOpenView(user: SessionUser, view: View) {
-  if (view === "analyses") {
-    return canAccessArea(user, "recruiter") || canAccessArea(user, "learning");
-  }
-  if (view === "learning") {
-    return canAccessArea(user, "learning");
-  }
-  if (view === "workforce") {
-    return canAccessArea(user, "recruiter");
-  }
-  if (view === "audit") {
-    return canAccessArea(user, "admin");
-  }
-  return true;
+  return canOpenAccess(user, navItems.find((item) => item.id === view)?.access ?? "all");
 }
 
 function getRestrictedViewCopy(view: View) {
@@ -153,11 +159,13 @@ function CandidateResumeFileLinks({ candidate }: { candidate: CandidateAnalysis 
 export default function Dashboard({
   user,
   enableE2eFileHook = false,
+  initialView,
 }: {
   user: SessionUser;
   enableE2eFileHook?: boolean;
+  initialView?: string;
 }) {
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>(() => parseView(initialView) ?? "dashboard");
   const [roleId, setRoleId] = useState("sde-ii");
   const [files, setFiles] = useState<File[]>([]);
   const [candidates, setCandidates] = useState<CandidateAnalysis[]>([]);
@@ -167,6 +175,10 @@ export default function Dashboard({
   const [failures, setFailures] = useState<UploadResponse["failures"]>([]);
   const [uploadDuplicateWarnings, setUploadDuplicateWarnings] = useState<CandidateDuplicateWarning[]>([]);
   const [overrideCandidate, setOverrideCandidate] = useState<CandidateAnalysis | null>(null);
+  const [manualRestrictedView, setManualRestrictedView] = useState<View | null>(() => {
+    const parsedView = parseView(initialView);
+    return parsedView && !canOpenView(user, parsedView) ? parsedView : null;
+  });
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
   const [selectedLearningCandidateId, setSelectedLearningCandidateId] = useState<string>("");
   const [learningAssignmentStatus, setLearningAssignmentStatus] = useState<"idle" | "saving">("idle");
@@ -178,7 +190,7 @@ export default function Dashboard({
   const [analysisHistoryStatus, setAnalysisHistoryStatus] = useState<LoadStatus>("loading");
   const [savedRolesStatus, setSavedRolesStatus] = useState<LoadStatus>("loading");
   const [auditStatus, setAuditStatus] = useState<LoadStatus>(
-    canAccessArea(user, "admin") ? "loading" : "forbidden"
+    canAccess(user, "admin") ? "loading" : "forbidden"
   );
   const [query, setQuery] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
@@ -209,9 +221,16 @@ export default function Dashboard({
   const bestRecommendation = selectedRoleMatch ?? selectedCandidate?.topPositions[0];
   const selectedResult = selectedRoleMatch ?? bestRecommendation;
   const savedCurrentRole = savedRoles.find((role) => role.roleId === roleId);
-  const userCanViewAnalysisHistory = canAccessArea(user, "recruiter") || canAccessArea(user, "learning");
-  const userCanViewAudit = canAccessArea(user, "admin");
+  const accessibleNavItems = useMemo(
+    () => navItems.filter((item) => canOpenAccess(user, item.access)),
+    [user]
+  );
+  const firstAccessibleView = accessibleNavItems[0]?.id ?? "dashboard";
+  const userCanViewAnalysisHistory = canAccess(user, "recruiter") || canAccess(user, "learning");
+  const userCanViewAudit = canAccess(user, "admin");
   const activeViewAllowed = canOpenView(user, view);
+  const showRestrictedView = !activeViewAllowed && manualRestrictedView === view;
+  const screenView: View | null = showRestrictedView ? null : activeViewAllowed ? view : firstAccessibleView;
 
   const workforceGaps = useMemo(() => {
     const counts = new Map<string, number>();
@@ -672,7 +691,34 @@ export default function Dashboard({
 
   const matchedSkills = selectedResult?.matchedSkills ?? [];
   const missingSkills = selectedResult?.missingSkills ?? [];
-  const userCanSubmitRecruiterOverride = canAccessArea(user, "recruiter");
+  const userCanSubmitRecruiterOverride = canAccess(user, "recruiter");
+
+  const updateViewUrl = useCallback((nextView: View) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    if (nextView === "dashboard") {
+      url.searchParams.delete("view");
+    } else {
+      url.searchParams.set("view", nextView);
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  function selectView(nextView: View) {
+    const resolvedView = canOpenView(user, nextView) ? nextView : firstAccessibleView;
+    setManualRestrictedView(null);
+    setView(resolvedView);
+    updateViewUrl(resolvedView);
+  }
+
+  useEffect(() => {
+    if (screenView && screenView !== view) {
+      updateViewUrl(screenView);
+    }
+  }, [screenView, updateViewUrl, view]);
 
   return (
     <main className="product-shell">
@@ -721,20 +767,17 @@ export default function Dashboard({
         </header>
 
         <nav className="top-nav" aria-label="Sections">
-          {navItems.map((item) => {
+          {accessibleNavItems.map((item) => {
             const Icon = item.icon;
-            const allowed = canOpenView(user, item.id);
             return (
               <button
-                className={`top-nav-item ${view === item.id ? "active" : ""} ${allowed ? "" : "restricted"}`}
+                className={`top-nav-item ${screenView === item.id ? "active" : ""}`}
                 key={item.id}
                 type="button"
-                title={allowed ? undefined : getRestrictedViewCopy(item.id).text}
-                onClick={() => setView(item.id)}
+                onClick={() => selectView(item.id)}
               >
                 <Icon aria-hidden="true" />
                 {item.label}
-                {allowed ? null : <LockKeyhole aria-hidden="true" className="restricted-nav-icon" />}
               </button>
             );
           })}
@@ -758,9 +801,9 @@ export default function Dashboard({
           </div>
         ) : null}
 
-        {!activeViewAllowed ? <RestrictedView user={user} view={view} /> : null}
+        {showRestrictedView ? <RestrictedView user={user} view={view} /> : null}
 
-        {activeViewAllowed && view === "dashboard" ? (
+        {screenView === "dashboard" ? (
           <>
             <section className="concept-grid">
               <section className="concept-panel upload-panel">
@@ -935,7 +978,7 @@ export default function Dashboard({
                   onSave={saveCurrentTargetRole}
                   onSelect={(id) => {
                     setRoleId(id);
-                    setView("learning");
+                    selectView("learning");
                   }}
                 />
                 <RecommendationPanel candidate={selectedCandidate} />
@@ -946,7 +989,7 @@ export default function Dashboard({
           </>
         ) : null}
 
-        {activeViewAllowed && view === "analyses" ? (
+        {screenView === "analyses" ? (
           <section className="screen-stack">
             <div className="screen-toolbar">
               <label className="search-box">
@@ -1058,7 +1101,7 @@ export default function Dashboard({
           </section>
         ) : null}
 
-        {activeViewAllowed && view === "learning" ? (
+        {screenView === "learning" ? (
           <section className="screen-stack">
             <div className="screen-toolbar">
               <label className="role-context learning-resume-picker">
@@ -1107,7 +1150,7 @@ export default function Dashboard({
           </section>
         ) : null}
 
-        {activeViewAllowed && view === "workforce" ? (
+        {screenView === "workforce" ? (
           <section className="screen-stack">
             <div className="screen-toolbar">
               <span className="text-[13px] text-muted">Counts reflect analyzed candidates from this workspace.</span>
@@ -1210,7 +1253,7 @@ export default function Dashboard({
           </section>
         ) : null}
 
-        {activeViewAllowed && view === "audit" ? (
+        {screenView === "audit" ? (
           <section className="screen-stack">
             <section className="concept-panel audit-log-panel">
               <div className="panel-heading">
@@ -1237,7 +1280,7 @@ export default function Dashboard({
           </section>
         ) : null}
 
-        {activeViewAllowed && view === "settings" ? (
+        {screenView === "settings" ? (
           <section className="screen-stack">
             <section className="concept-panel settings-grid">
               <div>
@@ -1970,7 +2013,7 @@ function RestrictedView({ user, view }: { user: SessionUser; view: View }) {
       <article className="concept-panel restricted-panel">
         <LockKeyhole aria-hidden="true" />
         <div>
-          <h2>{copy.title}</h2>
+          <h2>Restricted access: {copy.title}</h2>
           <p>{copy.text}</p>
           <span>Current role: {user.role.replace("_", " ")}</span>
         </div>
