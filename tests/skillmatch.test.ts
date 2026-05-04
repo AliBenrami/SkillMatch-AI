@@ -97,6 +97,7 @@ describe("skill matching engine", () => {
     });
 
     expect(analysis.candidateName).toBe("Alex Smith");
+    expect(analysis.aiInsight).toBeNull();
     expect(analysis.structured.certifications.join(" ")).toMatch(/AWS Certified|Cloud Practitioner/i);
     expect(analysis.structured.location).toBeNull();
     expect(maskDemographicSignals(analysis.structured.biasMaskedText)).toContain("[email masked]");

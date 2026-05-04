@@ -194,6 +194,7 @@ export async function saveCandidateBatch(input: {
       storageUrl: candidate.storageUrl,
       structuredResume: candidate.structured,
       topPositions: candidate.topPositions,
+      aiInsight: candidate.aiInsight,
       bestRoleTitle: best?.role.title ?? "No match",
       bestScore: best?.score ?? 0
     });
@@ -223,6 +224,7 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
       storageUrl: candidateRecommendations.storageUrl,
       structured: candidateRecommendations.structuredResume,
       topPositions: candidateRecommendations.topPositions,
+      aiInsight: candidateRecommendations.aiInsight,
       createdAt: candidateRecommendations.createdAt
     })
     .from(candidateRecommendations)
@@ -236,6 +238,7 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
     storageUrl: row.storageUrl,
     structured: row.structured as CandidateAnalysis["structured"],
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
+    aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
     createdAt: row.createdAt.toISOString()
   })) as CandidateAnalysis[];
 
