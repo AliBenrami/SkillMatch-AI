@@ -7,8 +7,7 @@ const requiredTables = [
   "analyses",
   "audit_events",
   "candidate_recommendations",
-  "saved_target_roles",
-  "__drizzle_migrations"
+  "saved_target_roles"
 ] as const;
 
 /** Tables expected to exist; columns checked only when the table is already present. */
@@ -23,7 +22,7 @@ function createMemoryHealthResponse() {
       configured: false,
       mode: "memory",
       schemaReady: false,
-      missingTables: requiredTables.filter((table) => table !== "__drizzle_migrations"),
+      missingTables: requiredTables,
       missingColumns: [] as string[]
     }
   });

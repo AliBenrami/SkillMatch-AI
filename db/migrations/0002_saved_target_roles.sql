@@ -1,4 +1,4 @@
-CREATE TABLE "saved_target_roles" (
+CREATE TABLE IF NOT EXISTS "saved_target_roles" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"employee_email" text NOT NULL,
 	"role_id" text NOT NULL,
@@ -15,5 +15,5 @@ CREATE TABLE "saved_target_roles" (
 	CONSTRAINT "saved_target_roles_progress_percent_check" CHECK ("saved_target_roles"."progress_percent" >= 0 and "saved_target_roles"."progress_percent" <= 100)
 );
 --> statement-breakpoint
-CREATE INDEX "saved_target_roles_employee_idx" ON "saved_target_roles" USING btree ("employee_email");--> statement-breakpoint
-CREATE UNIQUE INDEX "saved_target_roles_employee_role_idx" ON "saved_target_roles" USING btree ("employee_email","role_id");
+CREATE INDEX IF NOT EXISTS "saved_target_roles_employee_idx" ON "saved_target_roles" USING btree ("employee_email");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "saved_target_roles_employee_role_idx" ON "saved_target_roles" USING btree ("employee_email","role_id");

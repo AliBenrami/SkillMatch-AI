@@ -9,7 +9,7 @@ DO $$ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
-
+--> statement-breakpoint
 ALTER TABLE "users"
   ALTER COLUMN "role" TYPE "user_role"
   USING (

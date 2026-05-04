@@ -35,25 +35,12 @@ import type {
   SavedTargetRole,
 } from "@/lib/db";
 import type { CandidateAnalysis } from "@/lib/skillmatch";
-import type { ApiErrorHint } from "@/lib/api-error-payload";
 
 type UploadResponse = {
   candidates: CandidateAnalysis[];
   failures: Array<{ fileName: string; error: string }>;
   duplicates?: CandidateDuplicateWarning[];
   persistError?: string;
-};
-
-type HealthPayload = {
-  status?: string;
-  database?: {
-    configured?: boolean;
-    mode?: string;
-    schemaReady?: boolean;
-    missingTables?: string[];
-    missingColumns?: string[];
-  };
-  error?: string;
 };
 
 type SkillGapChartItem = {
@@ -137,14 +124,6 @@ export default function Dashboard({
   const [educationFilter, setEducationFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [minYearsFilter, setMinYearsFilter] = useState("");
-  const [recordsRefreshError, setRecordsRefreshError] = useState("");
-  const [recordsRefreshHint, setRecordsRefreshHint] = useState<ApiErrorHint | null>(null);
-  const [schemaHealthIssue, setSchemaHealthIssue] = useState<{
-    missingTables: string[];
-    missingColumns: string[];
-  } | null>(null);
-  /** When set, schema banner stays hidden until the issue fingerprint changes or health clears. */
-  const [dismissedSchemaFingerprint, setDismissedSchemaFingerprint] = useState<string | null>(null);
   const serverFiltersRef = useRef({
     skill: "",
     education: "",
@@ -182,17 +161,6 @@ export default function Dashboard({
 
   const workforceGapMeterMax = Math.max(files.length, candidates.length, 5);
 
-  const schemaIssueFingerprint = useMemo(() => {
-    if (!schemaHealthIssue) {
-      return "";
-    }
-    return [...schemaHealthIssue.missingTables, ...schemaHealthIssue.missingColumns].sort().join("|");
-  }, [schemaHealthIssue]);
-
-  const showSchemaHealthBanner = Boolean(
-    schemaIssueFingerprint && schemaIssueFingerprint !== dismissedSchemaFingerprint,
-  );
-
   const skillGapChartItems = useMemo<SkillGapChartItem[]>(() => {
     if (!selectedResult) {
       return [];
@@ -228,22 +196,6 @@ export default function Dashboard({
 
   const refreshRecords = useCallback(
     async (options?: { skipCandidates?: boolean; forceEmptyCandidateFilters?: boolean }) => {
-      setRecordsRefreshError("");
-      setRecordsRefreshHint(null);
-      const recordIssues: string[] = [];
-      let mergedHint: ApiErrorHint | null = null;
-
-      const considerServerHint = (status: number, hint: unknown) => {
-        if (status < 500) {
-          return;
-        }
-        if (hint === "migrate") {
-          mergedHint = "migrate";
-        } else if (hint === "contact_admin" && mergedHint !== "migrate") {
-          mergedHint = "contact_admin";
-        }
-      };
-
       const candidateParams = new URLSearchParams();
       const useServerFilters = !options?.forceEmptyCandidateFilters;
       if (useServerFilters) {
@@ -291,12 +243,8 @@ export default function Dashboard({
         } else {
           const payload = (await candidateResponse.json().catch(() => ({}))) as {
             error?: string;
-            hint?: string;
           };
-          considerServerHint(candidateResponse.status, payload.hint);
-          recordIssues.push(
-            payload.error ?? `Could not load candidates (HTTP ${candidateResponse.status}).`
-          );
+          setNotice(payload.error ?? `Could not load candidates (HTTP ${candidateResponse.status}).`);
         }
       }
 
@@ -317,12 +265,8 @@ export default function Dashboard({
       } else {
         const payload = (await savedRolesResponse.json().catch(() => ({}))) as {
           error?: string;
-          hint?: string;
         };
-        considerServerHint(savedRolesResponse.status, payload.hint);
-        recordIssues.push(
-          payload.error ?? `Could not load saved roles (HTTP ${savedRolesResponse.status}).`
-        );
+        setNotice(payload.error ?? `Could not load saved roles (HTTP ${savedRolesResponse.status}).`);
       }
 
       if (auditResponse?.ok) {
@@ -330,27 +274,6 @@ export default function Dashboard({
         setAuditEvents(payload.events);
       }
 
-      try {
-        const healthResponse = await fetch("/api/health", { credentials: "same-origin" });
-        const healthPayload = (await healthResponse.json().catch(() => ({}))) as HealthPayload;
-        const db = healthPayload.database;
-        if (db?.mode === "postgres" && db.configured && db.schemaReady === false) {
-          setSchemaHealthIssue({
-            missingTables: db.missingTables ?? [],
-            missingColumns: db.missingColumns ?? [],
-          });
-        } else {
-          setSchemaHealthIssue(null);
-          setDismissedSchemaFingerprint(null);
-        }
-      } catch {
-        // Keep prior schema signal if /api/health is unreachable.
-      }
-
-      if (recordIssues.length) {
-        setRecordsRefreshError(recordIssues.join(" "));
-        setRecordsRefreshHint(mergedHint);
-      }
     },
     [educationFilter, locationFilter, minYearsFilter, skillFilter, user.role]
   );
@@ -621,78 +544,6 @@ export default function Dashboard({
         </nav>
 
         <section className="main-product">
-        {showSchemaHealthBanner && schemaHealthIssue ? (
-          <div
-            className="mb-4 flex w-full max-w-full items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-[13px] text-sky-950 shadow-sm"
-            role="status"
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden={true} />
-            <div className="min-w-0 flex-1 leading-snug">
-              <strong className="font-semibold">Database storage is up, schema is not ready</strong>
-              <p className="m-0 mt-1 text-[12px] opacity-90">
-                PostgreSQL is reachable but expected tables or columns are missing. An administrator should run{" "}
-                <code className="rounded bg-white/80 px-1 py-0.5 text-[11px]">npm run db:migrate</code>{" "}
-                using the database connection configured for this deployment so the database matches this version of
-                the app.
-              </p>
-              {schemaHealthIssue.missingTables.length || schemaHealthIssue.missingColumns.length ? (
-                <p className="m-0 mt-2 font-mono text-[11px] opacity-80">
-                  {schemaHealthIssue.missingTables.length ? (
-                    <span>Missing tables: {schemaHealthIssue.missingTables.join(", ")}. </span>
-                  ) : null}
-                  {schemaHealthIssue.missingColumns.length ? (
-                    <span>Missing columns: {schemaHealthIssue.missingColumns.join(", ")}.</span>
-                  ) : null}
-                </p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="queue-icon-button shrink-0"
-              aria-label="Dismiss schema status"
-              title="Dismiss"
-              onClick={() => setDismissedSchemaFingerprint(schemaIssueFingerprint)}
-            >
-              <X aria-hidden={true} />
-            </button>
-          </div>
-        ) : null}
-
-        {recordsRefreshError ? (
-          <div
-            className="mb-4 flex w-full max-w-full items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-950 shadow-sm"
-            role="alert"
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden={true} />
-            <div className="min-w-0 flex-1 leading-snug">
-              <strong className="font-semibold">Could not refresh some data</strong>
-              <p className="m-0 mt-1 text-[12px] opacity-90">{recordsRefreshError}</p>
-              {recordsRefreshHint === "migrate" ? (
-                <p className="m-0 mt-2 text-[12px] opacity-90">
-                  This is usually fixed by applying database migrations. An administrator should run{" "}
-                  <code className="rounded bg-white/80 px-1 py-0.5 text-[11px]">npm run db:migrate</code>{" "}
-                  against the deployment&apos;s Postgres database.
-                </p>
-              ) : recordsRefreshHint === "contact_admin" ? (
-                <p className="m-0 mt-2 text-[12px] opacity-90">
-                  If this keeps happening, contact your administrator.
-                </p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="queue-icon-button shrink-0"
-              aria-label="Dismiss refresh warning"
-              title="Dismiss"
-              onClick={() => {
-                setRecordsRefreshError("");
-                setRecordsRefreshHint(null);
-              }}
-            >
-              <X aria-hidden={true} />
-            </button>
-          </div>
-        ) : null}
 
         {view === "dashboard" ? (
           <>
@@ -1131,7 +982,6 @@ export default function Dashboard({
 
         {view === "settings" ? (
           <section className="screen-stack">
-            <WorkspaceHealthPanel />
             <section className="concept-panel settings-grid">
               <div>
                 <h2>Account</h2>
@@ -1716,83 +1566,6 @@ function RecentCandidates({ candidates, onSelect }: { candidates: CandidateAnaly
           No analyses yet. Upload and process résumés from the Dashboard tab—completed analyses will show up here.
         </p>
       )}
-    </section>
-  );
-}
-
-function WorkspaceHealthPanel() {
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [caption, setCaption] = useState("Checking workspace health…");
-  const [retryTick, setRetryTick] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setStatus("loading");
-      setCaption("Checking workspace health…");
-      try {
-        const response = await fetch("/api/health", { credentials: "same-origin" });
-        const payload = (await response.json().catch(() => ({}))) as HealthPayload;
-        if (cancelled) {
-          return;
-        }
-        const db = payload.database;
-        if (!db?.configured) {
-          setStatus("ready");
-          setCaption(
-            "Workspace is running in memory storage — résumé analyses reset when the server restarts. Configure Postgres for durable storage.",
-          );
-          return;
-        }
-        if (db.mode === "postgres" && db.schemaReady && response.ok) {
-          setStatus("ready");
-          setCaption(
-            "Database connected and migration-ready — uploads, bookmarks, and audit entries persist across restarts.",
-          );
-          return;
-        }
-        setStatus("ready");
-        const detail = payload.error?.trim();
-        const missingTables = db?.missingTables?.filter(Boolean) ?? [];
-        const missingColumns = db?.missingColumns?.filter(Boolean) ?? [];
-        const inventoryParts = [
-          missingTables.length ? `Missing tables: ${missingTables.join(", ")}.` : "",
-          missingColumns.length ? `Missing columns: ${missingColumns.join(", ")}.` : "",
-        ].filter(Boolean);
-        const inventory = inventoryParts.length ? `${inventoryParts.join(" ")} ` : "";
-        setCaption(
-          detail
-            ? `${inventory}Health check reported: ${detail}. Ask an administrator to run npm run db:migrate against this environment's database, or to apply migrations.`
-            : `${inventory}PostgreSQL is configured, but the schema is incomplete. An administrator should run npm run db:migrate so uploads and saved roles persist reliably.`,
-        );
-      } catch {
-        if (!cancelled) {
-          setStatus("error");
-          setCaption("Could not reach /api/health — try again shortly or check server logs.");
-        }
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [retryTick]);
-
-  return (
-    <section className="concept-panel">
-      <div className="panel-heading">
-        <h2>Workspace status</h2>
-        <span>{status === "loading" ? "…" : status === "error" ? "Issue" : "Live"}</span>
-      </div>
-      <p className="m-0 text-[13px] leading-relaxed text-muted">{caption}</p>
-      <button
-        className="icon-text-button mt-3"
-        type="button"
-        disabled={status === "loading"}
-        onClick={() => setRetryTick((value) => value + 1)}
-      >
-        Check again
-      </button>
     </section>
   );
 }
