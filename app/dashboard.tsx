@@ -18,6 +18,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Target,
   Trash2,
   UploadCloud,
@@ -428,7 +429,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                         style={{ "--score": `${selectedResult?.score ?? 0}%` } as CSSProperties}
                         aria-label={selectedResult ? `Match score ${selectedResult.score}%` : "No match score yet"}
                       >
-                        <strong>{selectedResult ? `${selectedResult.score}%` : "â€”"}</strong>
+                        <strong>{selectedResult ? `${selectedResult.score}%` : "—"}</strong>
                       </div>
                       <strong>Overall Match</strong>
                       <span>{selectedResult ? selectedRole.title : "Upload resumes to rank positions"}</span>
@@ -457,6 +458,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
                   }}
                 />
                 <RecommendationPanel candidate={selectedCandidate} />
+                <AiInsightPanel insight={selectedCandidate?.aiInsight ?? null} />
                 <RecentCandidates candidates={candidates} onSelect={setSelectedCandidateId} />
               </aside>
             </section>
@@ -911,6 +913,62 @@ function SavedRoleProgress({
         </div>
       ) : (
         <EmptyPanel title="No saved target roles" text="Save a role from the dashboard to start tracking employee progress." />
+      )}
+    </section>
+  );
+}
+
+function AiInsightPanel({ insight }: { insight: CandidateAnalysis["aiInsight"] }) {
+  return (
+    <section className="concept-panel ai-insight-panel">
+      <div className="panel-heading">
+        <h2>
+          <Sparkles aria-hidden="true" className="inline-icon" />
+          AI resume review
+        </h2>
+        <span>Advisory</span>
+      </div>
+      {insight ? (
+        <div className="ai-insight-body">
+          <p className="ai-insight-summary">{insight.summary}</p>
+          <div className="ai-insight-columns">
+            <div>
+              <h3>Strengths</h3>
+              <ul>
+                {insight.strengths.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3>Development areas</h3>
+              <ul>
+                {insight.developmentAreas.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div>
+            <h3>Role fit</h3>
+            <p>{insight.roleFitNotes}</p>
+          </div>
+          {insight.followUpQuestions.length ? (
+            <div>
+              <h3>Follow-up questions</h3>
+              <ul className="follow-up-list">
+                {insight.followUpQuestions.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <p className="list-placeholder">
+          Configure <code>GEMINI_API_KEY</code> (Google AI Studio) on the server to generate a structured narrative after
+          each upload. Skill matching above still runs without it.
+        </p>
       )}
     </section>
   );

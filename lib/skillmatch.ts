@@ -1,4 +1,5 @@
 import { matchingConfig, roles, type RoleRequirement } from "./seed-data";
+import type { ResumeAiInsight } from "./resume-ai-insight";
 import { isKnownRoleId } from "./validation";
 
 type SkillSource =
@@ -88,6 +89,7 @@ export type CandidateAnalysis = {
   storageUrl: string;
   topPositions: CandidatePositionRecommendation[];
   structured: StructuredResume;
+  aiInsight: ResumeAiInsight | null;
   createdAt: string;
 };
 
@@ -538,6 +540,7 @@ export function analyzeCandidateResume(input: {
     storageUrl: input.storageUrl,
     topPositions,
     structured: topPositions[0]?.structured ?? extractStructuredResume(input.resumeText),
+    aiInsight: null,
     createdAt: new Date().toISOString()
   };
 }
