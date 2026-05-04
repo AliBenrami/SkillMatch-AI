@@ -26,7 +26,7 @@ import {
   X,
   type LucideIcon
 } from "lucide-react";
-import { roles } from "@/lib/seed-data";
+import { roles, type RoleRequirement } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
 import type {
   AnalysisRecord,
@@ -68,6 +68,10 @@ function fileKey(file: File) {
 
 function candidateHasStoredResumeFile(candidate: Pick<CandidateAnalysis, "storageUrl" | "fileName">) {
   return Boolean(candidate.storageUrl?.trim() && candidate.fileName?.trim());
+}
+
+function learningModuleId(roleId: string, skill: string) {
+  return `${roleId}:${skill}`;
 }
 
 function CandidateResumeFileLinks({ candidate }: { candidate: CandidateAnalysis }) {
@@ -114,6 +118,8 @@ export default function Dashboard({
   const [uploadDuplicateWarnings, setUploadDuplicateWarnings] = useState<CandidateDuplicateWarning[]>([]);
   const [overrideCandidate, setOverrideCandidate] = useState<CandidateAnalysis | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
+  const [selectedLearningCandidateId, setSelectedLearningCandidateId] = useState<string>("");
+  const [learningAssignmentStatus, setLearningAssignmentStatus] = useState<"idle" | "saving">("idle");
   const [isUploading, setIsUploading] = useState(false);
   const [notice, setNotice] = useState("");
   const [analysisHistoryStatus, setAnalysisHistoryStatus] = useState<
@@ -142,6 +148,8 @@ export default function Dashboard({
 
   const selectedRole = roles.find((role) => role.id === roleId) ?? roles[0];
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? candidates[0];
+  const selectedLearningCandidate =
+    candidates.find((candidate) => candidate.id === selectedLearningCandidateId) ?? selectedCandidate;
   const selectedRoleMatch = selectedCandidate?.topPositions.find((item) => item.role.id === roleId);
   const bestRecommendation = selectedRoleMatch ?? selectedCandidate?.topPositions[0];
   const selectedResult = selectedRoleMatch ?? bestRecommendation;
@@ -231,6 +239,16 @@ export default function Dashboard({
           const payload = (await candidateResponse.json()) as { candidates: CandidateAnalysis[] };
           setCandidates(payload.candidates);
           setSelectedCandidateId((current) => {
+            const ids = new Set(payload.candidates.map((c) => c.id));
+            if (!payload.candidates.length) {
+              return "";
+            }
+            if (current && ids.has(current)) {
+              return current;
+            }
+            return payload.candidates[0]!.id;
+          });
+          setSelectedLearningCandidateId((current) => {
             const ids = new Set(payload.candidates.map((c) => c.id));
             if (!payload.candidates.length) {
               return "";
@@ -473,6 +491,38 @@ export default function Dashboard({
     }
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
     setNotice(payload.error ?? "Could not remove this bookmark. Try again.");
+  }
+
+  async function assignLearningModule(moduleId: string, assigned: boolean) {
+    if (!selectedLearningCandidate) {
+      setNotice("Select a resume before assigning learning modules.");
+      return;
+    }
+
+    const currentModules = new Set(selectedLearningCandidate.assignedLearningModules ?? []);
+    if (assigned) {
+      currentModules.add(moduleId);
+    } else {
+      currentModules.delete(moduleId);
+    }
+
+    setLearningAssignmentStatus("saving");
+    const response = await fetch(`/api/candidates/${selectedLearningCandidate.id}/learning-modules`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ moduleIds: Array.from(currentModules) })
+    });
+
+    setLearningAssignmentStatus("idle");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setNotice(payload.error ?? "Could not update learning assignments.");
+      return;
+    }
+
+    const payload = (await response.json()) as { candidate: CandidateAnalysis };
+    setCandidates((current) => current.map((candidate) => (candidate.id === payload.candidate.id ? payload.candidate : candidate)));
+    setNotice(`Updated learning modules for ${payload.candidate.candidateName}.`);
   }
 
   async function logout() {
@@ -818,7 +868,24 @@ export default function Dashboard({
         {view === "learning" ? (
           <section className="screen-stack">
             <div className="screen-toolbar">
-              <span className="text-[13px] text-muted">Bookmarks & metrics refresh from the server.</span>
+              <label className="role-context learning-resume-picker">
+                Resume
+                <select
+                  value={selectedLearningCandidate?.id ?? ""}
+                  onChange={(event) => setSelectedLearningCandidateId(event.target.value)}
+                  disabled={!candidates.length}
+                >
+                  {candidates.length ? (
+                    candidates.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.candidateName} - {candidate.fileName}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">Upload a resume first</option>
+                  )}
+                </select>
+              </label>
               <button className="icon-text-button" type="button" onClick={() => void refreshRecords()}>
                 Refresh
               </button>
@@ -826,28 +893,17 @@ export default function Dashboard({
             <section className="metric-grid">
               <Metric label="Saved target roles" value={savedRoles.length} />
               <Metric label="Current role progress" value={savedCurrentRole ? `${savedCurrentRole.progressPercent}%` : "Not saved"} />
-              <Metric label="Target match score" value={savedCurrentRole ? `${savedCurrentRole.targetScore}%` : "80%"} />
+              <Metric
+                label="Assigned modules"
+                value={selectedLearningCandidate?.assignedLearningModules?.length ?? 0}
+              />
             </section>
-            <section className="concept-panel">
-              <div className="panel-heading">
-                <h2>Learning Recommendations</h2>
-                <span>{selectedRole.title}</span>
-              </div>
-              <p className="m-0 mb-3 text-[12px] font-semibold uppercase tracking-wide text-muted">
-                Demo mapping — not wired to LMS
-              </p>
-              <div className="learning-grid">
-                {Object.entries(selectedRole.learning).map(([skill, course]) => (
-                  <article className="learning-item" key={skill}>
-                    <GraduationCap aria-hidden="true" />
-                    <div>
-                      <strong>{course}</strong>
-                      <span>{skill}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
+            <LearningAssignmentPanel
+              busy={learningAssignmentStatus === "saving"}
+              candidate={selectedLearningCandidate}
+              onToggle={(moduleId, assigned) => void assignLearningModule(moduleId, assigned)}
+              role={selectedRole}
+            />
             <SavedRoleProgress roles={savedRoles} onRemove={removeSavedRole} onSelect={setRoleId} />
           </section>
         ) : null}
@@ -1454,6 +1510,70 @@ function SavedRoleProgress({
           title="No saved target roles"
           text="Bookmark a comparison role from the dashboard sidebar to track gap progress on Learning. Uploaded candidates already appear under Analyses—that action only pins the job role for progress, not the résumés."
         />
+      )}
+    </section>
+  );
+}
+
+function LearningAssignmentPanel({
+  busy,
+  candidate,
+  onToggle,
+  role
+}: {
+  busy: boolean;
+  candidate?: CandidateAnalysis;
+  onToggle: (moduleId: string, assigned: boolean) => void;
+  role: RoleRequirement;
+}) {
+  const assignedModules = new Set(candidate?.assignedLearningModules ?? []);
+  const candidateMissingSkills = new Set(
+    candidate?.topPositions.find((position) => position.role.id === role.id)?.missingSkills.map((gap) => gap.skill) ??
+      candidate?.topPositions[0]?.missingSkills.map((gap) => gap.skill) ??
+      []
+  );
+
+  return (
+    <section className="concept-panel">
+      <div className="panel-heading">
+        <h2>Learning Module Assignments</h2>
+        <span>{candidate ? role.title : "No resume selected"}</span>
+      </div>
+      {candidate ? (
+        <>
+          <p className="m-0 mb-3 text-[12px] leading-snug text-muted">
+            Assign role-specific learning modules directly to {candidate.candidateName}&apos;s saved resume.
+          </p>
+          <div className="learning-grid">
+            {Object.entries(role.learning).map(([skill, course]) => {
+              const moduleId = learningModuleId(role.id, skill);
+              const assigned = assignedModules.has(moduleId);
+              const recommended = candidateMissingSkills.has(skill);
+              return (
+                <article className={`learning-item learning-assignment-item ${assigned ? "is-assigned" : ""}`} key={moduleId}>
+                  <GraduationCap aria-hidden="true" />
+                  <div>
+                    <strong>{course}</strong>
+                    <span>
+                      {skill}
+                      {recommended ? " - gap match" : ""}
+                    </span>
+                  </div>
+                  <button
+                    className={assigned ? "icon-text-button assigned-module-button" : "icon-text-button"}
+                    disabled={busy}
+                    onClick={() => onToggle(moduleId, !assigned)}
+                    type="button"
+                  >
+                    {assigned ? "Assigned" : "Assign"}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <p className="list-placeholder">Upload and analyze a resume, then assign learning modules from this screen.</p>
       )}
     </section>
   );

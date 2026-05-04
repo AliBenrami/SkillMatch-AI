@@ -48,6 +48,7 @@ create table if not exists candidate_recommendations (
   storage_url text not null,
   structured_resume jsonb not null,
   top_positions jsonb not null,
+  assigned_learning_modules jsonb not null default '[]'::jsonb,
   best_role_title text not null,
   best_score integer not null check (best_score >= 0 and best_score <= 100),
   created_at timestamptz not null default now()

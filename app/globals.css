@@ -1644,6 +1644,24 @@ meter::-moz-meter-bar {
   padding: 16px;
 }
 
+.learning-assignment-item {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+}
+
+.learning-assignment-item.is-assigned {
+  border-color: #86efac;
+  background: var(--green-bg);
+}
+
+.assigned-module-button {
+  border-color: #86efac;
+  color: #065f46;
+}
+
+.learning-resume-picker {
+  min-width: min(520px, 100%);
+}
+
 .learning-item svg {
   color: var(--blue);
 }

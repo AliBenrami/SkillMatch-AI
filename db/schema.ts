@@ -68,6 +68,7 @@ export const candidateRecommendations = pgTable(
     structuredResume: jsonb("structured_resume").notNull(),
     topPositions: jsonb("top_positions").notNull(),
     aiInsight: jsonb("ai_insight").$type<ResumeAiInsight | null>(),
+    assignedLearningModules: jsonb("assigned_learning_modules").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     bestRoleTitle: text("best_role_title").notNull(),
     bestScore: integer("best_score").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()

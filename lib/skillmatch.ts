@@ -90,6 +90,7 @@ export type CandidateAnalysis = {
   topPositions: CandidatePositionRecommendation[];
   structured: StructuredResume;
   aiInsight: ResumeAiInsight | null;
+  assignedLearningModules: string[];
   createdAt: string;
 };
 
@@ -541,6 +542,7 @@ export function analyzeCandidateResume(input: {
     topPositions,
     structured: topPositions[0]?.structured ?? extractStructuredResume(input.resumeText),
     aiInsight: null,
+    assignedLearningModules: [],
     createdAt: new Date().toISOString()
   };
 }
