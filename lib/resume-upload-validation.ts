@@ -1,4 +1,5 @@
 const allowedResumeExtensions = /\.(pdf|docx|txt)$/i;
+const allowedZipExtensions = /\.zip$/i;
 
 const allowedResumeMime = new Set(
   [
@@ -33,4 +34,13 @@ export function isAllowedResumeUpload(fileName: string, mimeType: string): boole
   }
 
   return true;
+}
+
+export function isAllowedResumeZipUpload(fileName: string, mimeType: string): boolean {
+  if (!allowedZipExtensions.test(fileName)) {
+    return false;
+  }
+
+  const t = mimeType.trim().toLowerCase();
+  return t === "" || t === "application/zip" || t === "application/x-zip-compressed" || genericBinaryMime.has(t);
 }

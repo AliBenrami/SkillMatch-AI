@@ -56,6 +56,30 @@ describe("GET /api/candidates/[id]/resume", () => {
     expect(mockGetResumeObject).not.toHaveBeenCalled();
   });
 
+  it("uses inline disposition for PDF when view=1", async () => {
+    mockGetSessionUser.mockResolvedValue({
+      name: "Recruiter",
+      email: "recruiter@skillmatch.demo",
+      role: "recruiter"
+    });
+    mockGetCandidateResumeById.mockResolvedValue({
+      fileName: "Alex-Smith.pdf",
+      storageUrl: "local://resumes/2026-01-01/x.pdf"
+    });
+    mockGetResumeObject.mockResolvedValue({
+      bytes: new Uint8Array([9]),
+      contentType: "application/pdf"
+    });
+
+    const response = await downloadResumeGet(
+      new Request("http://localhost/api/candidates/c1/resume?view=1"),
+      { params: Promise.resolve({ id: "c1" }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Disposition")).toMatch(/^inline;/);
+  });
+
   it("streams bytes when resume object resolves", async () => {
     mockGetSessionUser.mockResolvedValue({
       name: "Recruiter",
@@ -77,6 +101,7 @@ describe("GET /api/candidates/[id]/resume", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("application/pdf");
+    expect(response.headers.get("Content-Disposition")).toMatch(/^attachment;/);
     expect(response.headers.get("Content-Disposition")).toContain("Alex-Smith.pdf");
 
     const buffer = Buffer.from(await response.arrayBuffer());

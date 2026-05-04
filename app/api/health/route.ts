@@ -11,6 +11,9 @@ const requiredTables = [
   "__drizzle_migrations"
 ] as const;
 
+/** Tables expected to exist; columns checked only when the table is already present. */
+const requiredColumns = [{ table: "candidate_recommendations", column: "ai_insight" }] as const;
+
 export const dynamic = "force-dynamic";
 
 function createMemoryHealthResponse() {
@@ -20,7 +23,8 @@ function createMemoryHealthResponse() {
       configured: false,
       mode: "memory",
       schemaReady: false,
-      missingTables: requiredTables.filter((table) => table !== "__drizzle_migrations")
+      missingTables: requiredTables.filter((table) => table !== "__drizzle_migrations"),
+      missingColumns: [] as string[]
     }
   });
 }
@@ -34,19 +38,31 @@ export async function GET() {
 
   try {
     const sql = neon(url);
-    const rows = await sql`
+    const tableRows = await sql`
       select table_name
       from information_schema.tables
       where table_schema = 'public'
     `;
 
-    const existingTables = new Set(
-      rows
-        .map((row) => String(row.table_name))
-        .filter((tableName) => requiredTables.includes(tableName as (typeof requiredTables)[number]))
+    const publicTables = new Set(tableRows.map((row) => String(row.table_name)));
+    const missingTables = requiredTables.filter((table) => !publicTables.has(table));
+
+    const columnRows = await sql`
+      select table_name, column_name
+      from information_schema.columns
+      where table_schema = 'public'
+    `;
+    const columnKeys = new Set(
+      columnRows.map((row) => `${String(row.table_name)}.${String(row.column_name)}`)
     );
-    const missingTables = requiredTables.filter((table) => !existingTables.has(table));
-    const schemaReady = missingTables.length === 0;
+    const missingColumns: string[] = [];
+    for (const { table, column } of requiredColumns) {
+      if (publicTables.has(table) && !columnKeys.has(`${table}.${column}`)) {
+        missingColumns.push(`${table}.${column}`);
+      }
+    }
+
+    const schemaReady = missingTables.length === 0 && missingColumns.length === 0;
 
     return NextResponse.json(
       {
@@ -55,7 +71,8 @@ export async function GET() {
           configured: true,
           mode: "postgres",
           schemaReady,
-          missingTables
+          missingTables,
+          missingColumns
         }
       },
       { status: schemaReady ? 200 : 503 }
@@ -68,7 +85,8 @@ export async function GET() {
           configured: true,
           mode: "postgres",
           schemaReady: false,
-          missingTables: requiredTables
+          missingTables: [...requiredTables],
+          missingColumns: [] as string[]
         },
         error: error instanceof Error ? error.message : "Database health check failed."
       },

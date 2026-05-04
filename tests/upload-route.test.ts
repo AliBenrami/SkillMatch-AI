@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CandidateAnalysis } from "@/lib/skillmatch";
 
 const {
   mockGetSessionUser,
@@ -51,7 +52,7 @@ function createUploadRequest(formData: FormData) {
   } as Request;
 }
 
-function createCandidate(id: string, fileName: string, candidateName = "Alex Smith") {
+function createCandidate(id: string, fileName: string, candidateName = "Alex Smith"): CandidateAnalysis {
   return {
     id,
     candidateName,
@@ -99,8 +100,9 @@ function createCandidate(id: string, fileName: string, candidateName = "Alex Smi
         rank: 1
       }
     ],
+    aiInsight: null,
     createdAt: "2026-05-03T00:00:00.000Z"
-  };
+  } as unknown as CandidateAnalysis;
 }
 
 describe("POST /api/upload", () => {
@@ -222,6 +224,7 @@ describe("POST /api/upload", () => {
     });
     expect(mockSaveAnalysis).not.toHaveBeenCalled();
   });
+
 });
 
 describe("saveCandidateBatch memory duplicate detection", () => {

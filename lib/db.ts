@@ -45,6 +45,19 @@ const memoryCandidateUploads: CandidateUploadRecord[] = [];
 const memoryAuditEvents: AuditEvent[] = [];
 const memorySavedTargetRoles: SavedTargetRole[] = [];
 
+/** Clears in-memory persistence when no DATABASE_URL backend is active (Playwright uses this between tests). */
+export function resetMemoryStoresForE2e(): boolean {
+  if (getDatabase()) {
+    return false;
+  }
+  memoryStore.length = 0;
+  memoryCandidates.length = 0;
+  memoryCandidateUploads.length = 0;
+  memoryAuditEvents.length = 0;
+  memorySavedTargetRoles.length = 0;
+  return true;
+}
+
 function normalizeFilterValue(value: string) {
   return value.trim().toLowerCase();
 }

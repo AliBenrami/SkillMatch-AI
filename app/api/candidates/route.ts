@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { listCandidateRecommendations, type CandidateRecommendationFilters } from "@/lib/db";
+import { serverErrorResponse } from "@/lib/server-api-error";
 
 export async function GET(request: Request) {
   const user = await getSessionUser();
@@ -21,5 +22,9 @@ export async function GET(request: Request) {
     minYearsExperience: minYears && Number.isFinite(Number(minYears)) ? Number(minYears) : undefined
   };
 
-  return NextResponse.json({ candidates: await listCandidateRecommendations(filters) });
+  try {
+    return NextResponse.json({ candidates: await listCandidateRecommendations(filters) });
+  } catch (error) {
+    return serverErrorResponse(error);
+  }
 }

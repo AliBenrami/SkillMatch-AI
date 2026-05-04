@@ -1,8 +1,20 @@
+do $$ begin
+  create type user_role as enum (
+    'employee',
+    'recruiter',
+    'hiring_manager',
+    'learning_development',
+    'system_admin'
+  );
+exception
+  when duplicate_object then null;
+end $$;
+
 create table if not exists users (
   id uuid primary key,
   name text not null,
   email text not null,
-  role text not null,
+  role user_role not null,
   password_hash text not null,
   created_at timestamptz not null default now()
 );

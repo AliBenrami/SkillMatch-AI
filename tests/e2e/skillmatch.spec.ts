@@ -2,12 +2,16 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
+import { signInDemoRecruiter } from "./auth-helpers";
+import { pickDashboardResume } from "./dashboard-upload-helpers";
 
 const fixtureDir = path.join(process.cwd(), "tests", "fixtures");
 const resumePath = path.join(fixtureDir, "alex-smith-sde-resume.pdf");
 /** Distinct résumé body so MIME smoke test avoids duplicate detection after alex-smith upload. */
 const octetStreamPdfPath = path.join(fixtureDir, "morgan-rivera-streaming-mime.pdf");
 const shortResumePath = path.join(fixtureDir, "empty-resume.txt");
+
+let hasMemoryIsolation = false;
 
 function createResumePdf() {
   fs.mkdirSync(fixtureDir, { recursive: true });
@@ -31,7 +35,7 @@ function createDistinctResumePdfForMimeTest() {
   doc.end();
 }
 
-test.beforeAll(() => {
+test.beforeAll(async ({ request }) => {
   if (!fs.existsSync(resumePath)) {
     createResumePdf();
   }
@@ -41,6 +45,15 @@ test.beforeAll(() => {
   if (!fs.existsSync(shortResumePath)) {
     fs.writeFileSync(shortResumePath, "Too short.");
   }
+  hasMemoryIsolation = (await request.post("/api/e2e/reset-memory")).ok();
+});
+
+test.beforeEach(async ({ request }) => {
+  if (!hasMemoryIsolation) {
+    return;
+  }
+  const response = await request.post("/api/e2e/reset-memory");
+  expect(response.ok(), await response.text()).toBeTruthy();
 });
 
 test("allows signed-out users to open signup", async ({ page }) => {
@@ -53,27 +66,20 @@ test("allows signed-out users to open signup", async ({ page }) => {
 });
 
 test("requires credential sign-in, uploads a PDF resume, and ranks positions", async ({ page }) => {
-  const uploadInput = page.getByLabel("Upload resume files");
   const notice = page.locator(".notice");
 
   await page.context().clearCookies();
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
+  await signInDemoRecruiter(page);
 
-  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
-  await page.getByLabel("Password").fill("SkillMatchDemo!23");
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
-
-  await uploadInput.setInputFiles(resumePath);
-  await uploadInput.setInputFiles(resumePath);
+  await pickDashboardResume(page, resumePath);
+  await pickDashboardResume(page, resumePath);
   await expect(page.getByText("alex-smith-sde-resume.pdf")).toBeVisible();
   await expect(page.getByText("alex-smith-sde-resume.pdf")).toHaveCount(1);
 
   await page.getByRole("button", { name: /remove alex-smith-sde-resume\.pdf/i }).click();
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeDisabled();
 
-  await uploadInput.setInputFiles(resumePath);
+  await pickDashboardResume(page, resumePath);
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeEnabled();
 
   await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
@@ -86,21 +92,37 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
   await expect(page.locator(".skill-gap-chart").getByText("system design")).toBeVisible();
 });
 
+test("shows duplicate advisory when uploading the same resume twice in sequence", async ({ page }) => {
+  test.skip(
+    !hasMemoryIsolation,
+    "Duplicate upload sequence needs /api/e2e/reset-memory (no DATABASE_URL). Use Playwright webServer from `npm run test:e2e`, not PW_REUSE_SERVER with a Neon-backed dev app."
+  );
+
+  const notice = page.locator(".notice");
+  const duplicateAdvisory = page.getByTestId("upload-duplicate-advisory");
+
+  await page.context().clearCookies();
+  await signInDemoRecruiter(page);
+
+  await pickDashboardResume(page, resumePath);
+  await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
+  await expect(notice).toHaveText(/Processed 1 resume/);
+
+  await pickDashboardResume(page, resumePath);
+  await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
+  await expect(notice).toHaveText(/duplicate or cluster/i);
+  await expect(duplicateAdvisory).toBeVisible();
+  await expect(duplicateAdvisory).toContainText("alex-smith-sde-resume.pdf");
+});
+
 test("accepts PDF when the browser reports application/octet-stream", async ({ page }) => {
-  const uploadInput = page.getByLabel("Upload resume files");
   const notice = page.locator(".notice");
 
   await page.context().clearCookies();
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
-
-  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
-  await page.getByLabel("Password").fill("SkillMatchDemo!23");
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
+  await signInDemoRecruiter(page);
 
   const buffer = await fs.promises.readFile(octetStreamPdfPath);
-  await uploadInput.setInputFiles({
+  await pickDashboardResume(page, {
     buffer,
     mimeType: "application/octet-stream",
     name: "streaming-resume.pdf"
@@ -112,20 +134,13 @@ test("accepts PDF when the browser reports application/octet-stream", async ({ p
 });
 
 test("keeps failed upload state visible after processing", async ({ page }) => {
-  const uploadInput = page.getByLabel("Upload resume files");
   const notice = page.locator(".notice");
 
   await page.context().clearCookies();
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
-
-  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
-  await page.getByLabel("Password").fill("SkillMatchDemo!23");
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
+  await signInDemoRecruiter(page);
   await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeDisabled();
 
-  await uploadInput.setInputFiles(shortResumePath);
+  await pickDashboardResume(page, shortResumePath);
   await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
 
   await expect(notice).toHaveText("No resumes were processed.");

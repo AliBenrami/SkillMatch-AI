@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAllowedResumeUpload } from "./resume-upload-validation";
+import { isAllowedResumeUpload, isAllowedResumeZipUpload } from "./resume-upload-validation";
 
 describe("isAllowedResumeUpload", () => {
   it("accepts PDF with generic binary MIME reported by many Windows browsers", () => {
@@ -29,5 +29,16 @@ describe("isAllowedResumeUpload", () => {
 
   it("allows novel MIME when extension matches and MIME is non-media", () => {
     expect(isAllowedResumeUpload("resume.pdf", "application/x-unknown")).toBe(true);
+  });
+});
+
+describe("isAllowedResumeZipUpload", () => {
+  it("accepts browser zip MIME variants", () => {
+    expect(isAllowedResumeZipUpload("bulk.zip", "application/zip")).toBe(true);
+    expect(isAllowedResumeZipUpload("bulk.zip", "application/x-zip-compressed")).toBe(true);
+  });
+
+  it("rejects non-zip files", () => {
+    expect(isAllowedResumeZipUpload("resume.pdf", "application/zip")).toBe(false);
   });
 });

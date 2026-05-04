@@ -1317,6 +1317,23 @@ input:focus-visible {
   color: var(--subtle);
 }
 
+.recent-list .recent-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.recent-list .recent-list-item > button {
+  border-bottom: 0;
+}
+
+.recent-list .recent-list-item .candidate-resume-links {
+  padding-left: 27px;
+}
+
 /* ─── Bottom grid ────────────────────────────────────────────── */
 
 .bottom-grid {
@@ -1587,6 +1604,27 @@ meter::-moz-meter-bar {
   font-weight: 600;
   color: var(--blue);
   text-decoration: none;
+}
+
+.candidate-resume-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.candidate-resume-links-sep {
+  color: var(--muted);
+  user-select: none;
+}
+
+.overview-panel-candidate-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 10px;
+  max-width: 100%;
 }
 
 .resume-download-link:hover {
