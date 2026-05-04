@@ -1214,7 +1214,14 @@ function ReadinessSignals({ result }: { result?: CandidateAnalysis["topPositions
     );
   }
 
-  const { certifications, experience, softSkills } = result.explanationDetails;
+  const details = result.explanationDetails;
+  const experience = details?.experience ?? {
+    candidateYears: result.structured.yearsExperience,
+    minimumYears: result.role.minimumYearsExperience,
+    idealYears: result.role.idealYearsExperience
+  };
+  const certifications = details?.certifications ?? { matched: 0, total: 0 };
+  const softSkills = details?.softSkills ?? { matched: 0, total: 0 };
 
   return (
     <div>
