@@ -70,6 +70,31 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
   await expect(page.locator(".skill-gap-chart").getByText("system design")).toBeVisible();
 });
 
+test("accepts PDF when the browser reports application/octet-stream", async ({ page }) => {
+  const uploadInput = page.getByLabel("Upload resume files");
+  const notice = page.locator(".notice");
+
+  await page.context().clearCookies();
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByLabel("Email").fill("recruiter@skillmatch.demo");
+  await page.getByLabel("Password").fill("SkillMatchDemo!23");
+  await page.getByRole("button", { name: /^sign in$/i }).click();
+  await expect(page.getByRole("heading", { name: "SkillMatch AI" })).toBeVisible();
+
+  const buffer = await fs.promises.readFile(resumePath);
+  await uploadInput.setInputFiles({
+    buffer,
+    mimeType: "application/octet-stream",
+    name: "streaming-resume.pdf"
+  });
+
+  await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
+  await expect(notice).toHaveText(/Processed 1 resume/);
+  await expect(page.getByRole("button", { name: /Alex Smith Software/ }).first()).toBeVisible();
+});
+
 test("keeps failed upload state visible after processing", async ({ page }) => {
   const uploadInput = page.getByLabel("Upload resume files");
   const notice = page.locator(".notice");

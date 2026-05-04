@@ -23,7 +23,7 @@ import {
   UploadCloud,
   Users,
   X,
-  type LucideIcon
+  type LucideIcon,
 } from "lucide-react";
 import { roles } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
@@ -33,6 +33,7 @@ import type { CandidateAnalysis } from "@/lib/skillmatch";
 type UploadResponse = {
   candidates: CandidateAnalysis[];
   failures: Array<{ fileName: string; error: string }>;
+  persistError?: string;
 };
 
 type SkillGapChartItem = {
@@ -43,7 +44,13 @@ type SkillGapChartItem = {
   coverage: number;
 };
 
-type View = "dashboard" | "analyses" | "learning" | "workforce" | "audit" | "settings";
+type View =
+  | "dashboard"
+  | "analyses"
+  | "learning"
+  | "workforce"
+  | "audit"
+  | "settings";
 
 const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -51,7 +58,7 @@ const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "learning", label: "Learning", icon: BookOpen },
   { id: "workforce", label: "Workforce", icon: Users },
   { id: "audit", label: "Audit Log", icon: ShieldCheck },
-  { id: "settings", label: "Settings", icon: Settings }
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 function fileKey(file: File) {
@@ -77,9 +84,14 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   const [minYearsFilter, setMinYearsFilter] = useState("");
 
   const selectedRole = roles.find((role) => role.id === roleId) ?? roles[0];
-  const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? candidates[0];
-  const selectedRoleMatch = selectedCandidate?.topPositions.find((item) => item.role.id === roleId);
-  const bestRecommendation = selectedRoleMatch ?? selectedCandidate?.topPositions[0];
+  const selectedCandidate =
+    candidates.find((candidate) => candidate.id === selectedCandidateId) ??
+    candidates[0];
+  const selectedRoleMatch = selectedCandidate?.topPositions.find(
+    (item) => item.role.id === roleId,
+  );
+  const bestRecommendation =
+    selectedRoleMatch ?? selectedCandidate?.topPositions[0];
   const selectedResult = selectedRoleMatch ?? bestRecommendation;
   const savedCurrentRole = savedRoles.find((role) => role.roleId === roleId);
 
@@ -95,16 +107,24 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       .slice(0, 8);
   }, [candidates]);
 
+  const workforceGapMeterMax = Math.max(files.length, candidates.length, 5);
+
   const skillGapChartItems = useMemo<SkillGapChartItem[]>(() => {
     if (!selectedResult) {
       return [];
     }
 
     const matchedSkills = new Set(selectedResult.matchedSkills);
-    const missingSkills = new Map(selectedResult.missingSkills.map((gap) => [gap.skill, gap]));
+    const missingSkills = new Map(
+      selectedResult.missingSkills.map((gap) => [gap.skill, gap]),
+    );
 
-    return [...selectedRole.requiredSkills, ...selectedRole.preferredSkills].map((skill) => {
-      const source: SkillGapChartItem["source"] = selectedRole.requiredSkills.includes(skill) ? "required" : "preferred";
+    return [
+      ...selectedRole.requiredSkills,
+      ...selectedRole.preferredSkills,
+    ].map((skill) => {
+      const source: SkillGapChartItem["source"] =
+        selectedRole.requiredSkills.includes(skill) ? "required" : "preferred";
       const isMatched = matchedSkills.has(skill);
       const missingGap = missingSkills.get(skill);
 
@@ -112,8 +132,10 @@ export default function Dashboard({ user }: { user: SessionUser }) {
         skill,
         source,
         status: isMatched ? "matched" : "gap",
-        importance: missingGap?.importance ?? (source === "required" ? "critical" : "important"),
-        coverage: isMatched ? 100 : source === "required" ? 32 : 56
+        importance:
+          missingGap?.importance ??
+          (source === "required" ? "critical" : "important"),
+        coverage: isMatched ? 100 : source === "required" ? 32 : 56,
       };
     });
   }, [selectedRole, selectedResult]);
@@ -121,7 +143,7 @@ export default function Dashboard({ user }: { user: SessionUser }) {
   const filteredCandidates = candidates.filter((candidate) =>
     `${candidate.candidateName} ${candidate.fileName} ${candidate.topPositions[0]?.role.title ?? ""}`
       .toLowerCase()
-      .includes(query.toLowerCase())
+      .includes(query.toLowerCase()),
   );
 
   const refreshRecords = useCallback(async () => {
@@ -141,28 +163,46 @@ export default function Dashboard({ user }: { user: SessionUser }) {
       candidateParams.set("minYearsExperience", minYearsFilter.trim());
     }
 
-    const candidateQuery = candidateParams.size ? `?${candidateParams.toString()}` : "";
-    const auditRequest = user.role === "system_admin" ? fetch("/api/audit") : Promise.resolve(null);
-    const [candidateResponse, analysisResponse, savedRolesResponse, auditResponse] = await Promise.all([
+    const candidateQuery = candidateParams.size
+      ? `?${candidateParams.toString()}`
+      : "";
+    const auditRequest =
+      user.role === "system_admin"
+        ? fetch("/api/audit")
+        : Promise.resolve(null);
+    const [
+      candidateResponse,
+      analysisResponse,
+      savedRolesResponse,
+      auditResponse,
+    ] = await Promise.all([
       fetch(`/api/candidates${candidateQuery}`),
       fetch("/api/analyses"),
       fetch("/api/saved-roles"),
-      auditRequest
+      auditRequest,
     ]);
 
     if (candidateResponse.ok) {
-      const payload = (await candidateResponse.json()) as { candidates: CandidateAnalysis[] };
+      const payload = (await candidateResponse.json()) as {
+        candidates: CandidateAnalysis[];
+      };
       setCandidates(payload.candidates);
-      setSelectedCandidateId((current) => current || payload.candidates[0]?.id || "");
+      setSelectedCandidateId(
+        (current) => current || payload.candidates[0]?.id || "",
+      );
     }
 
     if (analysisResponse.ok) {
-      const payload = (await analysisResponse.json()) as { analyses: AnalysisRecord[] };
+      const payload = (await analysisResponse.json()) as {
+        analyses: AnalysisRecord[];
+      };
       setAnalyses(payload.analyses);
     }
 
     if (savedRolesResponse.ok) {
-      const payload = (await savedRolesResponse.json()) as { savedRoles: SavedTargetRole[] };
+      const payload = (await savedRolesResponse.json()) as {
+        savedRoles: SavedTargetRole[];
+      };
       setSavedRoles(payload.savedRoles);
     }
 
@@ -181,7 +221,9 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     if (!fileList) {
       return;
     }
-    const nextFiles = Array.from(fileList).filter((file) => /\.(pdf|docx|txt)$/i.test(file.name));
+    const nextFiles = Array.from(fileList).filter((file) =>
+      /\.(pdf|docx|txt)$/i.test(file.name),
+    );
     setFiles((current) => {
       const queued = new Set(current.map(fileKey));
       const uniqueFiles = nextFiles.filter((file) => {
@@ -198,7 +240,9 @@ export default function Dashboard({ user }: { user: SessionUser }) {
 
   function removeFile(fileToRemove: File) {
     const removeKey = fileKey(fileToRemove);
-    setFiles((current) => current.filter((file) => fileKey(file) !== removeKey));
+    setFiles((current) =>
+      current.filter((file) => fileKey(file) !== removeKey),
+    );
   }
 
   function clearFiles() {
@@ -218,30 +262,74 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     const formData = new FormData();
     files.forEach((file) => formData.append("resumes", file));
 
-    const response = await fetch("/api/upload", {
-      method: "POST",
-      body: formData
-    });
-    const payload = (await response.json()) as UploadResponse | { error: string };
+    try {
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        credentials: "same-origin",
+        body: formData,
+      });
 
-    if (!response.ok) {
-      setNotice("error" in payload ? payload.error : "Upload failed.");
+      const contentType = response.headers.get("content-type") ?? "";
+
+      let payload: unknown;
+
+      if (contentType.includes("application/json")) {
+        try {
+          payload = await response.json();
+        } catch {
+          setNotice(
+            `Upload failed (${response.status}). The server returned invalid JSON.`,
+          );
+          return;
+        }
+      } else {
+        const text = await response.text();
+        const snippet = text.trim().slice(0, 200);
+        setNotice(
+          snippet
+            ? `Upload failed (${response.status}). ${snippet}`
+            : `Upload failed (${response.status}).`,
+        );
+        return;
+      }
+
+      if (!response.ok) {
+        const errBody = payload as { error?: string };
+        setNotice(errBody.error ?? `Upload failed (${response.status}).`);
+        return;
+      }
+
+      const uploadPayload = payload as UploadResponse;
+      setCandidates((current) => [...uploadPayload.candidates, ...current]);
+      setSelectedCandidateId(
+        uploadPayload.candidates[0]?.id ?? selectedCandidateId,
+      );
+      setFailures(uploadPayload.failures);
+      setFiles([]);
+      const persistWarn = uploadPayload.persistError?.trim();
+
+      let message =
+        uploadPayload.candidates.length > 0
+          ? `Processed ${uploadPayload.candidates.length} resume${uploadPayload.candidates.length === 1 ? "" : "s"}.`
+          : "No resumes were processed.";
+      if (persistWarn) {
+        message +=
+          uploadPayload.candidates.length > 0
+            ? ` Results were analyzed but could not be saved: ${persistWarn}`
+            : ` ${persistWarn}`;
+      }
+      setNotice(message);
+
+      if (!persistWarn) {
+        void refreshRecords();
+      }
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "Upload failed unexpectedly.",
+      );
+    } finally {
       setIsUploading(false);
-      return;
     }
-
-    const uploadPayload = payload as UploadResponse;
-    setCandidates((current) => [...uploadPayload.candidates, ...current]);
-    setSelectedCandidateId(uploadPayload.candidates[0]?.id ?? selectedCandidateId);
-    setFailures(uploadPayload.failures);
-    setFiles([]);
-    setNotice(
-      uploadPayload.candidates.length
-        ? `Processed ${uploadPayload.candidates.length} resume${uploadPayload.candidates.length === 1 ? "" : "s"}.`
-        : "No resumes were processed."
-    );
-    setIsUploading(false);
-    void refreshRecords();
   }
 
   async function saveCurrentTargetRole() {
@@ -253,8 +341,8 @@ export default function Dashboard({ user }: { user: SessionUser }) {
         targetScore: 80,
         currentScore: selectedResult?.score ?? null,
         matchedSkills,
-        missingSkills: missingSkills.map((gap) => gap.skill)
-      })
+        missingSkills: missingSkills.map((gap) => gap.skill),
+      }),
     });
 
     if (!response.ok) {
@@ -263,12 +351,18 @@ export default function Dashboard({ user }: { user: SessionUser }) {
     }
 
     const payload = (await response.json()) as { savedRole: SavedTargetRole };
-    setSavedRoles((current) => [payload.savedRole, ...current.filter((role) => role.id !== payload.savedRole.id)]);
+    setSavedRoles((current) => [
+      payload.savedRole,
+      ...current.filter((role) => role.id !== payload.savedRole.id),
+    ]);
     setNotice(`${selectedRole.title} saved as a target role.`);
   }
 
   async function removeSavedRole(id: string) {
-    const response = await fetch(`/api/saved-roles?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    const response = await fetch(
+      `/api/saved-roles?id=${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
     if (response.ok) {
       setSavedRoles((current) => current.filter((role) => role.id !== id));
     }
@@ -293,7 +387,10 @@ export default function Dashboard({ user }: { user: SessionUser }) {
             </div>
             <label className="role-context">
               Target role
-              <select value={roleId} onChange={(event) => setRoleId(event.target.value)}>
+              <select
+                value={roleId}
+                onChange={(event) => setRoleId(event.target.value)}
+              >
                 {roles.map((role) => (
                   <option key={role.id} value={role.id}>
                     {role.title}
@@ -305,7 +402,9 @@ export default function Dashboard({ user }: { user: SessionUser }) {
           <div className="header-actions">
             <span className="session-meta">
               {user.name}
-              <span className="session-meta-role">{user.role.replace("_", " ")}</span>
+              <span className="session-meta-role">
+                {user.role.replace("_", " ")}
+              </span>
             </span>
             <button className="icon-text-button" type="button" onClick={logout}>
               <LogOut aria-hidden="true" />
@@ -332,294 +431,457 @@ export default function Dashboard({ user }: { user: SessionUser }) {
         </nav>
 
         <section className="main-product">
+          {view === "dashboard" ? (
+            <>
+              <section className="concept-grid">
+                <section className="concept-panel upload-panel">
+                  <h2>Upload resumes</h2>
+                  <div
+                    className="drop-zone"
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      addFiles(event.dataTransfer.files);
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                  >
+                    <UploadCloud aria-hidden="true" />
+                    <strong>Drop PDF, DOCX, or TXT resumes here</strong>
+                    <span>or click to browse</span>
+                    <input
+                      aria-label="Upload resume files"
+                      type="file"
+                      multiple
+                      accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                      onChange={(event) => {
+                        addFiles(event.target.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </div>
+                  <div className="queue-header">
+                    <span>
+                      {files.length
+                        ? `${files.length} selected`
+                        : "No resumes selected"}
+                    </span>
+                    <button
+                      className="queue-clear-button"
+                      type="button"
+                      onClick={clearFiles}
+                      disabled={!files.length || isUploading}
+                    >
+                      <Trash2 aria-hidden="true" />
+                      Clear all
+                    </button>
+                  </div>
+                  <ul className="file-list">
+                    {files.map((file) => (
+                      <li key={fileKey(file)}>
+                        <CheckCircle2 aria-hidden="true" />
+                        <span>{file.name}</span>
+                        <small>{Math.round(file.size / 1024)} KB</small>
+                        <button
+                          className="queue-icon-button"
+                          type="button"
+                          onClick={() => removeFile(file)}
+                          disabled={isUploading}
+                          aria-label={`Remove ${file.name}`}
+                          title={`Remove ${file.name}`}
+                        >
+                          <X aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="role-facts">
+                    <h3>Role context</h3>
+                    <p>Job Family: {selectedRole.family}</p>
+                    <p>Business Unit: {selectedRole.department}</p>
+                    <p>Level: {selectedRole.level}</p>
+                  </div>
+                  {notice ? <p className="notice">{notice}</p> : null}
+                  {failures.map((failure) => (
+                    <p className="error-message" key={failure.fileName}>
+                      {failure.fileName}: {failure.error}
+                    </p>
+                  ))}
+                  <button
+                    className="run-button"
+                    onClick={uploadResumes}
+                    disabled={isUploading || !files.length}
+                  >
+                    <SlidersHorizontal aria-hidden="true" />
+                    {isUploading
+                      ? "Processing resumes..."
+                      : "Run SkillMatch Analysis"}
+                  </button>
+                </section>
 
-        {view === "dashboard" ? (
-          <>
-            <section className="concept-grid">
-              <section className="concept-panel upload-panel">
-                <h2>Upload resumes</h2>
-                <div
-                  className="drop-zone"
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    addFiles(event.dataTransfer.files);
-                  }}
-                  onDragOver={(event) => event.preventDefault()}
-                >
-                  <UploadCloud aria-hidden="true" />
-                  <strong>Drop PDF, DOCX, or TXT resumes here</strong>
-                  <span>or click to browse</span>
-                  <input
-                    aria-label="Upload resume files"
-                    type="file"
-                    multiple
-                    accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                    onChange={(event) => {
-                      addFiles(event.target.files);
-                      event.currentTarget.value = "";
+                <section className="concept-panel overview-panel">
+                  <div className="panel-heading">
+                    <h2>Skill Match Overview</h2>
+                    {selectedCandidate ? (
+                      <span>{selectedCandidate.candidateName}</span>
+                    ) : null}
+                  </div>
+                  <div className="overview-content">
+                    <div className="overview-summary">
+                      <div
+                        className={`score-column${selectedResult ? "" : " is-empty"}`}
+                      >
+                        <div
+                          className="score-ring large"
+                          style={
+                            {
+                              "--score": `${selectedResult?.score ?? 0}%`,
+                            } as CSSProperties
+                          }
+                          aria-label={
+                            selectedResult
+                              ? `Match score ${selectedResult.score}%`
+                              : "No match score yet"
+                          }
+                        >
+                          <strong>
+                            {selectedResult ? `${selectedResult.score}%` : "—"}
+                          </strong>
+                        </div>
+                        <strong>Overall Match</strong>
+                        <span>
+                          {selectedResult
+                            ? selectedRole.title
+                            : "Upload resumes to rank positions"}
+                        </span>
+                      </div>
+                      <SkillList
+                        title="Top Matched Skills"
+                        items={matchedSkills.slice(0, 8)}
+                      />
+                      <GapList gaps={missingSkills.slice(0, 8)} />
+                    </div>
+                    <RoleSkillGapChart
+                      candidateName={selectedCandidate?.candidateName}
+                      items={skillGapChartItems}
+                      roleTitle={selectedRole.title}
+                    />
+                  </div>
+                </section>
+
+                <aside className="right-stack">
+                  <SavedTargetRolesPanel
+                    currentRoleSaved={Boolean(savedCurrentRole)}
+                    roles={savedRoles}
+                    onRemove={removeSavedRole}
+                    onSave={saveCurrentTargetRole}
+                    onSelect={(id) => {
+                      setRoleId(id);
+                      setView("learning");
                     }}
                   />
-                </div>
-                <div className="queue-header">
-                  <span>{files.length ? `${files.length} selected` : "No resumes selected"}</span>
-                  <button className="queue-clear-button" type="button" onClick={clearFiles} disabled={!files.length || isUploading}>
-                    <Trash2 aria-hidden="true" />
-                    Clear all
-                  </button>
-                </div>
-                <ul className="file-list">
-                  {files.map((file) => (
-                    <li key={fileKey(file)}>
-                      <CheckCircle2 aria-hidden="true" />
-                      <span>{file.name}</span>
-                      <small>{Math.round(file.size / 1024)} KB</small>
-                      <button
-                        className="queue-icon-button"
-                        type="button"
-                        onClick={() => removeFile(file)}
-                        disabled={isUploading}
-                        aria-label={`Remove ${file.name}`}
-                        title={`Remove ${file.name}`}
-                      >
-                        <X aria-hidden="true" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <div className="role-facts">
-                  <h3>Role context</h3>
-                  <p>Job Family: {selectedRole.family}</p>
-                  <p>Business Unit: {selectedRole.department}</p>
-                  <p>Level: {selectedRole.level}</p>
-                </div>
-                {notice ? <p className="notice">{notice}</p> : null}
-                {failures.map((failure) => (
-                  <p className="error-message" key={failure.fileName}>
-                    {failure.fileName}: {failure.error}
-                  </p>
-                ))}
-                <button className="run-button" onClick={uploadResumes} disabled={isUploading || !files.length}>
-                  <SlidersHorizontal aria-hidden="true" />
-                  {isUploading ? "Processing resumes..." : "Run SkillMatch Analysis"}
-                </button>
-              </section>
-
-              <section className="concept-panel overview-panel">
-                <div className="panel-heading">
-                  <h2>Skill Match Overview</h2>
-                  {selectedCandidate ? <span>{selectedCandidate.candidateName}</span> : null}
-                </div>
-                <div className="overview-content">
-                  <div className="overview-summary">
-                    <div className={`score-column${selectedResult ? "" : " is-empty"}`}>
-                      <div
-                        className="score-ring large"
-                        style={{ "--score": `${selectedResult?.score ?? 0}%` } as CSSProperties}
-                        aria-label={selectedResult ? `Match score ${selectedResult.score}%` : "No match score yet"}
-                      >
-                        <strong>{selectedResult ? `${selectedResult.score}%` : "—"}</strong>
-                      </div>
-                      <strong>Overall Match</strong>
-                      <span>{selectedResult ? selectedRole.title : "Upload resumes to rank positions"}</span>
-                    </div>
-                    <SkillList title="Top Matched Skills" items={matchedSkills.slice(0, 8)} />
-                    <GapList gaps={missingSkills.slice(0, 8)} />
-                  </div>
-                  <RoleSkillGapChart
-                    candidateName={selectedCandidate?.candidateName}
-                    items={skillGapChartItems}
-                    roleTitle={selectedRole.title}
+                  <RecommendationPanel candidate={selectedCandidate} />
+                  <RecentCandidates
+                    candidates={candidates}
+                    onSelect={setSelectedCandidateId}
                   />
+                </aside>
+              </section>
+            </>
+          ) : null}
+
+          {view === "analyses" ? (
+            <section className="screen-stack">
+              <div className="screen-toolbar">
+                <label className="search-box">
+                  <Search aria-hidden="true" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search candidates"
+                  />
+                </label>
+                <button
+                  className="icon-text-button"
+                  onClick={() => void refreshRecords()}
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="filter-toolbar" aria-label="Candidate filters">
+                <label>
+                  Skills
+                  <input
+                    value={skillFilter}
+                    onChange={(event) => setSkillFilter(event.target.value)}
+                    placeholder="java, aws"
+                  />
+                </label>
+                <label>
+                  Education
+                  <input
+                    value={educationFilter}
+                    onChange={(event) => setEducationFilter(event.target.value)}
+                    placeholder="Bachelor"
+                  />
+                </label>
+                <label>
+                  Location
+                  <input
+                    value={locationFilter}
+                    onChange={(event) => setLocationFilter(event.target.value)}
+                    placeholder="Seattle"
+                  />
+                </label>
+                <label>
+                  Min years
+                  <input
+                    min="0"
+                    type="number"
+                    value={minYearsFilter}
+                    onChange={(event) => setMinYearsFilter(event.target.value)}
+                    placeholder="3"
+                  />
+                </label>
+              </div>
+              <section className="data-grid">
+                {filteredCandidates.map((candidate) => (
+                  <article className="candidate-card" key={candidate.id}>
+                    <div className="panel-heading">
+                      <h2>{candidate.candidateName}</h2>
+                      <em className="status-chip">
+                        {candidate.topPositions[0]?.score ?? 0}%
+                      </em>
+                    </div>
+                    <p>
+                      {candidate.fileName}{" "}
+                      <a
+                        className="resume-download-link"
+                        href={`/api/candidates/${candidate.id}/resume`}
+                      >
+                        Download original
+                      </a>
+                    </p>
+                    <strong style={{ fontSize: "13px" }}>
+                      {candidate.topPositions[0]?.role.title ??
+                        "No recommendation"}
+                    </strong>
+                    <span className="candidate-meta">
+                      {candidate.structured.skills.slice(0, 4).join(", ") ||
+                        "No skills extracted"}
+                      {candidate.structured.location
+                        ? ` | ${candidate.structured.location}`
+                        : ""}
+                      {candidate.structured.yearsExperience !== null
+                        ? ` | ${candidate.structured.yearsExperience} yrs`
+                        : ""}
+                    </span>
+                    <small>{candidate.topPositions[0]?.explanation}</small>
+                  </article>
+                ))}
+                {!filteredCandidates.length ? (
+                  <EmptyPanel
+                    title="No candidate analyses yet"
+                    text="Upload resumes from the dashboard to populate this screen."
+                  />
+                ) : null}
+              </section>
+              <HistoryTable analyses={analyses} />
+            </section>
+          ) : null}
+
+          {view === "learning" ? (
+            <section className="screen-stack">
+              <section className="metric-grid">
+                <Metric label="Saved target roles" value={savedRoles.length} />
+                <Metric
+                  label="Current role progress"
+                  value={
+                    savedCurrentRole
+                      ? `${savedCurrentRole.progressPercent}%`
+                      : "Not saved"
+                  }
+                />
+                <Metric
+                  label="Target match score"
+                  value={
+                    savedCurrentRole
+                      ? `${savedCurrentRole.targetScore}%`
+                      : "80%"
+                  }
+                />
+              </section>
+              <section className="concept-panel">
+                <div className="panel-heading">
+                  <h2>Learning Recommendations</h2>
+                  <span>{selectedRole.title}</span>
+                </div>
+                <div className="learning-grid">
+                  {Object.entries(selectedRole.learning).map(
+                    ([skill, course]) => (
+                      <article className="learning-item" key={skill}>
+                        <GraduationCap aria-hidden="true" />
+                        <div>
+                          <strong>{course}</strong>
+                          <span>{skill}</span>
+                        </div>
+                      </article>
+                    ),
+                  )}
                 </div>
               </section>
-
-              <aside className="right-stack">
-                <SavedTargetRolesPanel
-                  currentRoleSaved={Boolean(savedCurrentRole)}
-                  roles={savedRoles}
-                  onRemove={removeSavedRole}
-                  onSave={saveCurrentTargetRole}
-                  onSelect={(id) => {
-                    setRoleId(id);
-                    setView("learning");
-                  }}
-                />
-                <RecommendationPanel candidate={selectedCandidate} />
-                <RecentCandidates candidates={candidates} onSelect={setSelectedCandidateId} />
-              </aside>
+              <SavedRoleProgress
+                roles={savedRoles}
+                onRemove={removeSavedRole}
+                onSelect={setRoleId}
+              />
             </section>
-          </>
-        ) : null}
+          ) : null}
 
-        {view === "analyses" ? (
-          <section className="screen-stack">
-            <div className="screen-toolbar">
-              <label className="search-box">
-                <Search aria-hidden="true" />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search candidates" />
-              </label>
-              <button className="icon-text-button" onClick={() => void refreshRecords()}>Refresh</button>
-            </div>
-            <div className="filter-toolbar" aria-label="Candidate filters">
-              <label>
-                Skills
-                <input value={skillFilter} onChange={(event) => setSkillFilter(event.target.value)} placeholder="java, aws" />
-              </label>
-              <label>
-                Education
-                <input value={educationFilter} onChange={(event) => setEducationFilter(event.target.value)} placeholder="Bachelor" />
-              </label>
-              <label>
-                Location
-                <input value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)} placeholder="Seattle" />
-              </label>
-              <label>
-                Min years
-                <input
-                  min="0"
-                  type="number"
-                  value={minYearsFilter}
-                  onChange={(event) => setMinYearsFilter(event.target.value)}
-                  placeholder="3"
+          {view === "workforce" ? (
+            <section className="screen-stack">
+              <section className="metric-grid">
+                <Metric label="Open role families" value={roles.length} />
+                <Metric label="Candidates reviewed" value={candidates.length} />
+                <Metric
+                  label="Tracked skill gaps"
+                  value={
+                    workforceGaps.length || selectedRole.requiredSkills.length
+                  }
                 />
-              </label>
-            </div>
-            <section className="data-grid">
-              {filteredCandidates.map((candidate) => (
-                <article className="candidate-card" key={candidate.id}>
-                  <div className="panel-heading">
-                    <h2>{candidate.candidateName}</h2>
-                    <em className="status-chip">{candidate.topPositions[0]?.score ?? 0}%</em>
-                  </div>
-                  <p>
-                    {candidate.fileName}{" "}
-                    <a className="resume-download-link" href={`/api/candidates/${candidate.id}/resume`}>
-                      Download original
-                    </a>
-                  </p>
-                  <strong style={{ fontSize: "13px" }}>{candidate.topPositions[0]?.role.title ?? "No recommendation"}</strong>
-                  <span className="candidate-meta">
-                    {(candidate.structured.skills.slice(0, 4).join(", ") || "No skills extracted")}
-                    {candidate.structured.location ? ` | ${candidate.structured.location}` : ""}
-                    {candidate.structured.yearsExperience !== null ? ` | ${candidate.structured.yearsExperience} yrs` : ""}
+              </section>
+              <section className="concept-panel">
+                <div className="panel-heading">
+                  <h2>Role Coverage Matrix</h2>
+                  <span>Current catalog</span>
+                </div>
+                <div className="role-matrix">
+                  {roles.map((role) => (
+                    <article key={role.id}>
+                      <strong>{role.title}</strong>
+                      <span>{role.department}</span>
+                      <small>
+                        {role.requiredSkills.slice(0, 5).join(", ")}
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              </section>
+              <section className="flex flex-col gap-4 rounded-lg border border-border bg-panel p-4 shadow-md md:p-[clamp(1rem,1.15vw,1.125rem)]">
+                <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-border pb-3">
+                  <h2 className="m-0 text-[15px] font-bold tracking-tight text-[#0f172a]">
+                    Common skill gaps
+                  </h2>
+                  <span className="max-w-xs text-end text-xs font-semibold leading-snug text-muted sm:max-w-sm">
+                    {selectedRole.title}
                   </span>
-                  <small>{candidate.topPositions[0]?.explanation}</small>
-                </article>
-              ))}
-              {!filteredCandidates.length ? <EmptyPanel title="No candidate analyses yet" text="Upload resumes from the dashboard to populate this screen." /> : null}
-            </section>
-            <HistoryTable analyses={analyses} />
-          </section>
-        ) : null}
-
-        {view === "learning" ? (
-          <section className="screen-stack">
-            <section className="metric-grid">
-              <Metric label="Saved target roles" value={savedRoles.length} />
-              <Metric label="Current role progress" value={savedCurrentRole ? `${savedCurrentRole.progressPercent}%` : "Not saved"} />
-              <Metric label="Target match score" value={savedCurrentRole ? `${savedCurrentRole.targetScore}%` : "80%"} />
-            </section>
-            <section className="concept-panel">
-              <div className="panel-heading">
-                <h2>Learning Recommendations</h2>
-                <span>{selectedRole.title}</span>
-              </div>
-              <div className="learning-grid">
-                {Object.entries(selectedRole.learning).map(([skill, course]) => (
-                  <article className="learning-item" key={skill}>
-                    <GraduationCap aria-hidden="true" />
-                    <div>
-                      <strong>{course}</strong>
-                      <span>{skill}</span>
+                </div>
+                <p className="m-0 text-[13px] leading-relaxed text-muted">
+                  Aggregated missing skills from recent analyses (when
+                  available).
+                </p>
+                <div className="flex flex-col gap-3">
+                  {(workforceGaps.length
+                    ? workforceGaps
+                    : selectedRole.requiredSkills
+                        .slice(0, 5)
+                        .map(
+                          (skill, index) =>
+                            [skill, 5 - index] as [string, number],
+                        )
+                  ).map(([skill, count]) => (
+                    <div
+                      key={skill}
+                      className="grid grid-cols-1 items-center gap-x-4 gap-y-2 min-[460px]:grid-cols-[minmax(7rem,8.5rem)_minmax(0,1fr)_2.75rem]"
+                    >
+                      <span className="truncate text-[13px] font-medium capitalize text-ink min-[460px]:row-auto">
+                        {skill}
+                      </span>
+                      <meter
+                        className="col-span-full min-h-[6px] w-full min-w-0 appearance-none min-[460px]:col-auto"
+                        value={Number(count)}
+                        min={0}
+                        max={workforceGapMeterMax}
+                      />
+                      <strong className="text-left text-[13px] font-bold tabular-nums text-muted min-[460px]:text-end">
+                        {Number(count)}
+                      </strong>
                     </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-            <SavedRoleProgress roles={savedRoles} onRemove={removeSavedRole} onSelect={setRoleId} />
-          </section>
-        ) : null}
-
-        {view === "workforce" ? (
-          <section className="screen-stack">
-            <section className="metric-grid">
-              <Metric label="Open role families" value={roles.length} />
-              <Metric label="Candidates reviewed" value={candidates.length} />
-              <Metric label="Tracked skill gaps" value={workforceGaps.length || selectedRole.requiredSkills.length} />
-            </section>
-            <section className="concept-panel">
-              <div className="panel-heading">
-                <h2>Role Coverage Matrix</h2>
-                <span>Current catalog</span>
-              </div>
-              <div className="role-matrix">
-                {roles.map((role) => (
-                  <article key={role.id}>
-                    <strong>{role.title}</strong>
-                    <span>{role.department}</span>
-                    <small>{role.requiredSkills.slice(0, 5).join(", ")}</small>
-                  </article>
-                ))}
-              </div>
-            </section>
-            <section className="concept-panel">
-              <div className="panel-heading">
-                <h2>Common skill gaps</h2>
-                <span>{selectedRole.title}</span>
-              </div>
-              <p className="panel-lead">
-                Aggregated missing skills from recent analyses (when available).
-              </p>
-              <div className="gap-bars">
-                {(workforceGaps.length
-                  ? workforceGaps
-                  : selectedRole.requiredSkills.slice(0, 5).map((skill, index) => [skill, 5 - index] as [string, number])
-                ).map(([skill, count]) => (
-                  <div key={skill}>
-                    <span>{skill}</span>
-                    <meter value={Number(count)} min={0} max={Math.max(files.length, candidates.length, 5)} />
-                    <strong>{Number(count)}</strong>
+                  ))}
+                </div>
+                <div
+                  role="status"
+                  aria-live="polite"
+                  aria-busy={isUploading && files.length > 0}
+                  className="mt-0.5 flex items-start gap-3 border-t border-border pt-3"
+                >
+                  <span
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-panel text-subtle ring-1 ring-border"
+                    aria-hidden={true}
+                  >
+                    <Activity className="size-[17px]" strokeWidth={2} />
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="text-[12px] font-bold uppercase tracking-wide text-subtle">
+                      Processing queue
+                    </span>
+                    <p className="m-0 text-[13px] font-medium leading-snug text-ink">
+                      {isUploading && files.length > 0 ? (
+                        <>
+                          <span className="font-semibold text-brand">{files.length}</span> resume
+                          upload{files.length === 1 ? "" : "s"} in progress.
+                        </>
+                      ) : (
+                        <span className="text-muted">Idle — nothing queued right now.</span>
+                      )}
+                    </p>
                   </div>
-                ))}
-              </div>
-              <div className="system-health-inline">
-                <Activity aria-hidden="true" />
-                <span>Processing queue: {isUploading ? files.length : 0} job(s)</span>
-              </div>
+                </div>
+              </section>
             </section>
-          </section>
-        ) : null}
+          ) : null}
 
-        {view === "audit" ? (
-          <section className="screen-stack">
-            <section className="concept-panel audit-log-panel">
-              <div className="panel-heading">
-                <h2>Audit Log</h2>
-                <span>{user.role === "system_admin" ? `${auditEvents.length} events` : "Admin only"}</span>
-              </div>
-              {user.role === "system_admin" ? <AuditTable events={auditEvents} /> : <EmptyPanel title="Restricted screen" text="System administrators can view login, upload, and override events." />}
+          {view === "audit" ? (
+            <section className="screen-stack">
+              <section className="concept-panel audit-log-panel">
+                <div className="panel-heading">
+                  <h2>Audit Log</h2>
+                  <span>
+                    {user.role === "system_admin"
+                      ? `${auditEvents.length} events`
+                      : "Admin only"}
+                  </span>
+                </div>
+                {user.role === "system_admin" ? (
+                  <AuditTable events={auditEvents} />
+                ) : (
+                  <EmptyPanel
+                    title="Restricted screen"
+                    text="System administrators can view login, upload, and override events."
+                  />
+                )}
+              </section>
             </section>
-          </section>
-        ) : null}
+          ) : null}
 
-        {view === "settings" ? (
-          <section className="screen-stack">
-            <section className="concept-panel settings-grid">
-              <div>
-                <h2>Account</h2>
-                <p>{user.name}</p>
-                <strong>{user.email}</strong>
-                <span>{user.role.replace("_", " ")}</span>
-              </div>
-              <div>
-                <h2>MVP Controls</h2>
-                <p>Credential users are loaded from AUTH_USERS_JSON.</p>
-                <p>Session lifetime is eight hours.</p>
-                <p>Database storage activates when DATABASE_URL is present.</p>
-              </div>
+          {view === "settings" ? (
+            <section className="screen-stack">
+              <section className="concept-panel settings-grid">
+                <div>
+                  <h2>Account</h2>
+                  <p>{user.name}</p>
+                  <strong>{user.email}</strong>
+                  <span>{user.role.replace("_", " ")}</span>
+                </div>
+                <div>
+                  <h2>MVP Controls</h2>
+                  <p>Credential users are loaded from AUTH_USERS_JSON.</p>
+                  <p>Session lifetime is eight hours.</p>
+                  <p>
+                    Database storage activates when DATABASE_URL is present.
+                  </p>
+                </div>
+              </section>
             </section>
-          </section>
-        ) : null}
+          ) : null}
         </section>
       </div>
     </main>
@@ -643,13 +905,19 @@ function SkillList({ title, items }: { title: string; items: string[] }) {
           ))}
         </ul>
       ) : (
-        <p className="list-placeholder">Upload a resume to see matched skills.</p>
+        <p className="list-placeholder">
+          Upload a resume to see matched skills.
+        </p>
       )}
     </div>
   );
 }
 
-function GapList({ gaps }: { gaps: CandidateAnalysis["topPositions"][number]["missingSkills"] }) {
+function GapList({
+  gaps,
+}: {
+  gaps: CandidateAnalysis["topPositions"][number]["missingSkills"];
+}) {
   return (
     <div>
       <h3>
@@ -675,7 +943,7 @@ function GapList({ gaps }: { gaps: CandidateAnalysis["topPositions"][number]["mi
 function RoleSkillGapChart({
   candidateName,
   items,
-  roleTitle
+  roleTitle,
 }: {
   candidateName?: string;
   items: SkillGapChartItem[];
@@ -697,7 +965,8 @@ function RoleSkillGapChart({
           <h3 id="skill-gap-chart-title">Role Skill-Gap Chart</h3>
         </div>
         <p className="chart-caption">
-          Upload a resume and run analysis to see skill coverage for {roleTitle}.
+          Upload a resume and run analysis to see skill coverage for {roleTitle}
+          .
         </p>
         <div className="chart-placeholder" />
       </section>
@@ -705,7 +974,10 @@ function RoleSkillGapChart({
   }
 
   return (
-    <section className="skill-gap-chart-panel" aria-labelledby="skill-gap-chart-title">
+    <section
+      className="skill-gap-chart-panel"
+      aria-labelledby="skill-gap-chart-title"
+    >
       <div className="panel-heading">
         <h3 id="skill-gap-chart-title">Role Skill-Gap Chart</h3>
         <span>{candidateName ?? "Candidate"}</span>
@@ -725,11 +997,14 @@ function RoleSkillGapChart({
         >
           {items.map((item, index) => {
             const y = 18 + index * 42;
-            const fillWidth = Math.max(36, Math.round((item.coverage / 100) * barW));
+            const fillWidth = Math.max(
+              36,
+              Math.round((item.coverage / 100) * barW),
+            );
             const barClassName = [
               "chart-bar-fill",
               item.status === "matched" ? "is-matched" : "",
-              item.source === "required" ? "is-required" : "is-preferred"
+              item.source === "required" ? "is-required" : "is-preferred",
             ]
               .filter(Boolean)
               .join(" ");
@@ -739,8 +1014,24 @@ function RoleSkillGapChart({
                 <text className="chart-skill-label" x="0" y="14">
                   {item.skill}
                 </text>
-                <rect className="chart-bar-track" height="14" rx="7" ry="7" width={barW} x={barX} y="0" />
-                <rect className={barClassName} height="14" rx="7" ry="7" width={fillWidth} x={barX} y="0" />
+                <rect
+                  className="chart-bar-track"
+                  height="14"
+                  rx="7"
+                  ry="7"
+                  width={barW}
+                  x={barX}
+                  y="0"
+                />
+                <rect
+                  className={barClassName}
+                  height="14"
+                  rx="7"
+                  ry="7"
+                  width={fillWidth}
+                  x={barX}
+                  y="0"
+                />
                 <text className="chart-meta-label" x={metaX} y="12">
                   {item.status === "matched" ? "Matched" : item.importance}
                 </text>
@@ -772,7 +1063,7 @@ function SavedTargetRolesPanel({
   roles,
   onRemove,
   onSave,
-  onSelect
+  onSelect,
 }: {
   currentRoleSaved: boolean;
   roles: SavedTargetRole[];
@@ -798,7 +1089,11 @@ function SavedTargetRolesPanel({
                 <Target aria-hidden="true" />
                 <span>
                   <strong>{role.roleTitle}</strong>
-                  <small>{role.currentScore === null ? "No score yet" : `${role.currentScore}% current match`}</small>
+                  <small>
+                    {role.currentScore === null
+                      ? "No score yet"
+                      : `${role.currentScore}% current match`}
+                  </small>
                 </span>
                 <em>{role.progressPercent}%</em>
               </button>
@@ -815,7 +1110,9 @@ function SavedTargetRolesPanel({
           ))}
         </ul>
       ) : (
-        <p className="list-placeholder">Save target roles to track skill progress over time.</p>
+        <p className="list-placeholder">
+          Save target roles to track skill progress over time.
+        </p>
       )}
     </section>
   );
@@ -824,7 +1121,7 @@ function SavedTargetRolesPanel({
 function SavedRoleProgress({
   roles,
   onRemove,
-  onSelect
+  onSelect,
 }: {
   roles: SavedTargetRole[];
   onRemove: (id: string) => void;
@@ -842,22 +1139,40 @@ function SavedRoleProgress({
             <article key={role.id}>
               <div>
                 <strong>{role.roleTitle}</strong>
-                <span>{role.missingSkills.length ? `${role.missingSkills.slice(0, 3).join(", ")} gaps` : "No tracked gaps"}</span>
+                <span>
+                  {role.missingSkills.length
+                    ? `${role.missingSkills.slice(0, 3).join(", ")} gaps`
+                    : "No tracked gaps"}
+                </span>
               </div>
               <meter min={0} max={100} value={role.progressPercent} />
-              <em>{role.progressPercent}% to {role.targetScore}% goal</em>
-              <button className="icon-text-button" type="button" onClick={() => onSelect(role.roleId)}>
+              <em>
+                {role.progressPercent}% to {role.targetScore}% goal
+              </em>
+              <button
+                className="icon-text-button"
+                type="button"
+                onClick={() => onSelect(role.roleId)}
+              >
                 <Target aria-hidden="true" />
                 View learning
               </button>
-              <button className="queue-icon-button" type="button" onClick={() => onRemove(role.id)} aria-label={`Remove ${role.roleTitle}`}>
+              <button
+                className="queue-icon-button"
+                type="button"
+                onClick={() => onRemove(role.id)}
+                aria-label={`Remove ${role.roleTitle}`}
+              >
                 <Trash2 aria-hidden="true" />
               </button>
             </article>
           ))}
         </div>
       ) : (
-        <EmptyPanel title="No saved target roles" text="Save a role from the dashboard to start tracking employee progress." />
+        <EmptyPanel
+          title="No saved target roles"
+          text="Save a role from the dashboard to start tracking employee progress."
+        />
       )}
     </section>
   );
@@ -893,7 +1208,13 @@ function RecommendationPanel({ candidate }: { candidate?: CandidateAnalysis }) {
   );
 }
 
-function RecentCandidates({ candidates, onSelect }: { candidates: CandidateAnalysis[]; onSelect: (id: string) => void }) {
+function RecentCandidates({
+  candidates,
+  onSelect,
+}: {
+  candidates: CandidateAnalysis[];
+  onSelect: (id: string) => void;
+}) {
   return (
     <section className="concept-panel">
       <div className="panel-heading">

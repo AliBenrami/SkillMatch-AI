@@ -3,17 +3,11 @@ import { getSessionUser } from "@/lib/auth";
 import { saveAnalysis, saveCandidateBatch } from "@/lib/db";
 import { extractResumeText } from "@/lib/resume-parser";
 import { analyzeCandidateResume, type CandidateAnalysis } from "@/lib/skillmatch";
+import { isAllowedResumeUpload } from "@/lib/resume-upload-validation";
 import { storeResumeFile } from "@/lib/storage";
 
 const maxFiles = 12;
 const maxFileSize = 8 * 1024 * 1024;
-const allowedResumeExtensions = /\.(pdf|docx|txt)$/i;
-const allowedResumeTypes = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/plain",
-  ""
-]);
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -44,7 +38,7 @@ export async function POST(request: Request) {
         throw new Error("File exceeds 8 MB limit.");
       }
 
-      if (!allowedResumeExtensions.test(file.name) || !allowedResumeTypes.has(file.type)) {
+      if (!isAllowedResumeUpload(file.name, file.type)) {
         throw new Error("Only PDF, DOCX, or TXT resumes are supported.");
       }
 
@@ -73,20 +67,27 @@ export async function POST(request: Request) {
     }
   }
 
+  let persistError: string | undefined;
   if (candidates.length) {
-    await saveCandidateBatch({ actor: user.email, candidates });
-    for (const { candidate, resumeText } of uploadOutputs) {
-      const best = candidate.topPositions[0];
-      if (best) {
-        await saveAnalysis({
-          employeeName: candidate.candidateName,
-          resumeText,
-          result: best,
-          recordAudit: false
-        });
+    try {
+      await saveCandidateBatch({ actor: user.email, candidates });
+      for (const { candidate, resumeText } of uploadOutputs) {
+        const best = candidate.topPositions[0];
+        if (best) {
+          await saveAnalysis({
+            employeeName: candidate.candidateName,
+            resumeText,
+            result: best,
+            recordAudit: false
+          });
+        }
       }
+    } catch (error) {
+      persistError = error instanceof Error ? error.message : "Failed to save resumes.";
     }
   }
 
-  return NextResponse.json({ candidates, failures });
+  return NextResponse.json(
+    persistError ? { candidates, failures, persistError } : { candidates, failures }
+  );
 }
