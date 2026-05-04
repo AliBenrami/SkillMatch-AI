@@ -135,3 +135,4 @@ Project documentation now lives in the repo under `docs/` so process notes can e
 - `docs/generated/` is for exported artifacts such as PDFs or presentation renders when they are needed for review or submission.
 
 When a pull request changes user-facing behavior, architecture, environment requirements, testing strategy, or deployment steps, update the relevant docs in the same branch and note the change in `docs/changelog.md`.
+## PA4 Updates - Swara Saoji
