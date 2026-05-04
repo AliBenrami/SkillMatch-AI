@@ -20,13 +20,81 @@ export type CandidateRecommendationFilters = {
   minYearsExperience?: number;
 };
 
+export type CandidateDuplicateWarning = {
+  type: "exact_duplicate" | "candidate_cluster";
+  source: "upload_batch" | "existing_records";
+  candidateName: string;
+  fileName: string;
+  duplicateKey: string;
+  clusterKey: string;
+  matchedCandidateId?: string;
+  matchedFileName?: string;
+  message: string;
+};
+
+export type CandidateUploadRecord = {
+  candidate: CandidateAnalysis;
+  resumeText: string;
+  duplicateKey: string;
+  clusterKey: string;
+};
+
 const memoryStore: AnalysisRecord[] = [];
 const memoryCandidates: CandidateAnalysis[] = [];
+const memoryCandidateUploads: CandidateUploadRecord[] = [];
 const memoryAuditEvents: AuditEvent[] = [];
 const memorySavedTargetRoles: SavedTargetRole[] = [];
 
 function normalizeFilterValue(value: string) {
   return value.trim().toLowerCase();
+}
+
+function normalizeDuplicateValue(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function hashDuplicateValue(value: string) {
+  let hash = 2166136261;
+
+  for (const char of value) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export function buildCandidateDuplicateIdentity(input: {
+  candidateName: string;
+  fileName: string;
+  resumeText: string;
+}) {
+  const candidateKey = normalizeDuplicateValue(input.candidateName) || "candidate";
+  const fileKey = normalizeDuplicateValue(input.fileName) || "file";
+  const resumeKey = normalizeDuplicateValue(input.resumeText);
+  const duplicateKey = `${candidateKey}:${hashDuplicateValue(resumeKey)}`;
+  const clusterKey = `${candidateKey}:${fileKey}`;
+
+  return { duplicateKey, clusterKey };
+}
+
+function createDuplicateWarning(
+  input: Omit<CandidateDuplicateWarning, "message"> & {
+    message?: string;
+  }
+): CandidateDuplicateWarning {
+  return {
+    ...input,
+    message:
+      input.message ??
+      (input.type === "exact_duplicate"
+        ? "Skipped duplicate resume upload."
+        : "Uploaded candidate is clustered with an existing candidate record.")
+  };
 }
 
 export function filterCandidateRecommendations(
@@ -171,29 +239,172 @@ export async function appendAuditEvent(input: {
 
 export async function saveCandidateBatch(input: {
   actor: string;
-  candidates: CandidateAnalysis[];
+  uploads: CandidateUploadRecord[];
 }) {
   const db = getDatabase();
+  const seenDuplicateKeys = new Set<string>();
+  const savedUploads: CandidateUploadRecord[] = [];
+  const duplicates: CandidateDuplicateWarning[] = [];
 
   if (!db) {
-    memoryCandidates.unshift(...input.candidates);
+    for (const upload of input.uploads) {
+      const batchDuplicate = seenDuplicateKeys.has(upload.duplicateKey);
+      if (batchDuplicate) {
+        duplicates.push(
+          createDuplicateWarning({
+            type: "exact_duplicate",
+            source: "upload_batch",
+            candidateName: upload.candidate.candidateName,
+            fileName: upload.candidate.fileName,
+            duplicateKey: upload.duplicateKey,
+            clusterKey: upload.clusterKey
+          })
+        );
+        continue;
+      }
+
+      seenDuplicateKeys.add(upload.duplicateKey);
+
+      const existingDuplicate = memoryCandidateUploads.find((item) => item.duplicateKey === upload.duplicateKey);
+      if (existingDuplicate) {
+        duplicates.push(
+          createDuplicateWarning({
+            type: "exact_duplicate",
+            source: "existing_records",
+            candidateName: upload.candidate.candidateName,
+            fileName: upload.candidate.fileName,
+            duplicateKey: upload.duplicateKey,
+            clusterKey: upload.clusterKey,
+            matchedCandidateId: existingDuplicate.candidate.id,
+            matchedFileName: existingDuplicate.candidate.fileName
+          })
+        );
+        continue;
+      }
+
+      const existingCluster = memoryCandidateUploads.find((item) => item.clusterKey === upload.clusterKey);
+      if (existingCluster) {
+        duplicates.push(
+          createDuplicateWarning({
+            type: "candidate_cluster",
+            source: "existing_records",
+            candidateName: upload.candidate.candidateName,
+            fileName: upload.candidate.fileName,
+            duplicateKey: upload.duplicateKey,
+            clusterKey: upload.clusterKey,
+            matchedCandidateId: existingCluster.candidate.id,
+            matchedFileName: existingCluster.candidate.fileName
+          })
+        );
+      }
+
+      savedUploads.push(upload);
+    }
+
+    memoryCandidateUploads.unshift(...savedUploads);
+    memoryCandidates.unshift(...savedUploads.map((upload) => upload.candidate));
     await appendAuditEvent({
       actor: input.actor,
       action: "recommendation_generation",
-      details: { count: input.candidates.length, mode: "local_memory" }
+      details: { count: savedUploads.length, duplicates: duplicates.length, mode: "local_memory" }
     });
-    return input.candidates;
+    return {
+      candidates: savedUploads.map((upload) => upload.candidate),
+      duplicates
+    };
   }
 
-  for (const candidate of input.candidates) {
-    const best = candidate.topPositions[0];
+  for (const upload of input.uploads) {
+    const batchDuplicate = seenDuplicateKeys.has(upload.duplicateKey);
+    if (batchDuplicate) {
+      duplicates.push(
+        createDuplicateWarning({
+          type: "exact_duplicate",
+          source: "upload_batch",
+          candidateName: upload.candidate.candidateName,
+          fileName: upload.candidate.fileName,
+          duplicateKey: upload.duplicateKey,
+          clusterKey: upload.clusterKey
+        })
+      );
+      continue;
+    }
+
+    seenDuplicateKeys.add(upload.duplicateKey);
+
+    const existingAnalyses = await db
+      .select({
+        id: analyses.id,
+        employeeName: analyses.employeeName,
+        resumeText: analyses.resumeText
+      })
+      .from(analyses)
+      .where(eq(analyses.employeeName, upload.candidate.candidateName))
+      .orderBy(desc(analyses.createdAt))
+      .limit(20);
+
+    const matchedAnalysis = existingAnalyses.find((row) => {
+      const identity = buildCandidateDuplicateIdentity({
+        candidateName: row.employeeName,
+        fileName: upload.candidate.fileName,
+        resumeText: row.resumeText
+      });
+      return identity.duplicateKey === upload.duplicateKey;
+    });
+
+    if (matchedAnalysis) {
+      duplicates.push(
+        createDuplicateWarning({
+          type: "exact_duplicate",
+          source: "existing_records",
+          candidateName: upload.candidate.candidateName,
+          fileName: upload.candidate.fileName,
+          duplicateKey: upload.duplicateKey,
+          clusterKey: upload.clusterKey,
+          matchedCandidateId: matchedAnalysis.id
+        })
+      );
+      continue;
+    }
+
+    const clusterCandidates = await db
+      .select({
+        id: candidateRecommendations.id,
+        fileName: candidateRecommendations.fileName
+      })
+      .from(candidateRecommendations)
+      .where(eq(candidateRecommendations.candidateName, upload.candidate.candidateName))
+      .orderBy(desc(candidateRecommendations.createdAt))
+      .limit(5);
+
+    if (clusterCandidates.length) {
+      duplicates.push(
+        createDuplicateWarning({
+          type: "candidate_cluster",
+          source: "existing_records",
+          candidateName: upload.candidate.candidateName,
+          fileName: upload.candidate.fileName,
+          duplicateKey: upload.duplicateKey,
+          clusterKey: upload.clusterKey,
+          matchedCandidateId: clusterCandidates[0].id,
+          matchedFileName: clusterCandidates[0].fileName
+        })
+      );
+    }
+
+    savedUploads.push(upload);
+  }
+
+  for (const upload of savedUploads) {
+    const best = upload.candidate.topPositions[0];
     await db.insert(candidateRecommendations).values({
-      id: candidate.id,
-      candidateName: candidate.candidateName,
-      fileName: candidate.fileName,
-      storageUrl: candidate.storageUrl,
-      structuredResume: candidate.structured,
-      topPositions: candidate.topPositions,
+      id: upload.candidate.id,
+      candidateName: upload.candidate.candidateName,
+      fileName: upload.candidate.fileName,
+      storageUrl: upload.candidate.storageUrl,
+      structuredResume: upload.candidate.structured,
+      topPositions: upload.candidate.topPositions,
+      aiInsight: upload.candidate.aiInsight,
       bestRoleTitle: best?.role.title ?? "No match",
       bestScore: best?.score ?? 0
     });
@@ -202,10 +413,13 @@ export async function saveCandidateBatch(input: {
   await appendAuditEvent({
     actor: input.actor,
     action: "recommendation_generation",
-    details: { count: input.candidates.length, mode: "database" }
+    details: { count: savedUploads.length, duplicates: duplicates.length, mode: "database" }
   });
 
-  return input.candidates;
+  return {
+    candidates: savedUploads.map((upload) => upload.candidate),
+    duplicates
+  };
 }
 
 export async function listCandidateRecommendations(filters: CandidateRecommendationFilters = {}) {
@@ -223,6 +437,7 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
       storageUrl: candidateRecommendations.storageUrl,
       structured: candidateRecommendations.structuredResume,
       topPositions: candidateRecommendations.topPositions,
+      aiInsight: candidateRecommendations.aiInsight,
       createdAt: candidateRecommendations.createdAt
     })
     .from(candidateRecommendations)
@@ -236,6 +451,7 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
     storageUrl: row.storageUrl,
     structured: row.structured as CandidateAnalysis["structured"],
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
+    aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
     createdAt: row.createdAt.toISOString()
   })) as CandidateAnalysis[];
 
@@ -464,6 +680,11 @@ export async function deleteSavedTargetRole(input: { employeeEmail: string; id: 
 
 export function resetSavedTargetRolesForTests() {
   memorySavedTargetRoles.length = 0;
+}
+
+export function resetCandidateRecommendationsForTests() {
+  memoryCandidates.length = 0;
+  memoryCandidateUploads.length = 0;
 }
 
 export function resetAnalysesForTests() {

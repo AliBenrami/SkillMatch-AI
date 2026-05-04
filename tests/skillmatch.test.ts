@@ -21,12 +21,20 @@ describe("skill matching engine", () => {
   });
 
   it("weights required skills more than preferred skills", () => {
-    const result = analyzeResume("TypeScript React JavaScript Node SQL Git testing", "sde-i");
+    const result = analyzeResume(
+      [
+        "TypeScript React JavaScript Node SQL Git testing Docker.",
+        "2 years of experience building dashboards.",
+        "AWS Certified Cloud Practitioner.",
+        "Strong communication, problem solving, collaboration, and adaptability."
+      ].join(" "),
+      "sde-i"
+    );
 
     expect(result.score).toBeGreaterThanOrEqual(80);
     expect(result.matchedSkills).toContain("typescript");
-    expect(result.missingSkills.map((item) => item.skill)).toContain("aws");
-    expect(result.explanation).toContain("required skills count 2x");
+    expect(result.missingSkills.map((item) => item.skill)).toContain("api design");
+    expect(result.explanation).toContain("required hard skills count 2x");
     expect(result.explanationDetails.earnedWeight).toBeGreaterThan(result.matchedSkills.length);
   });
 
@@ -38,7 +46,7 @@ describe("skill matching engine", () => {
 
   it("ranks good positions for each resume", () => {
     const recommendations = rankResumeForPositions(
-      "Java engineer with AWS, SQL, REST API, Git, system design, Docker, and data structures experience."
+      "Java engineer with 5 years experience, AWS, SQL, REST API, Git, system design, Docker, data structures, communication, and collaboration."
     );
 
     expect(recommendations[0].role.id).toBe("sde-ii");
@@ -85,7 +93,57 @@ describe("skill matching engine", () => {
     expect(result.score).toBe(0);
     expect(result.matchedSkills).toEqual([]);
     expect(result.explanationDetails.evidence).toEqual([]);
-    expect(result.missingSkills).toHaveLength(10);
+    expect(result.missingSkills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ category: "skill", skill: "javascript" }),
+        expect.objectContaining({ category: "soft-skill", skill: "communication" }),
+        expect.objectContaining({ category: "certification", skill: "aws certified cloud practitioner" }),
+        expect.objectContaining({ category: "experience", skill: "1+ years of experience" })
+      ])
+    );
+  });
+
+  it("accounts for certifications, experience, and soft skills in scoring", () => {
+    const result = analyzeResume(
+      [
+        "Software engineer with 5 years of experience building Java systems on AWS.",
+        "AWS Certified Developer Associate.",
+        "Strong communication, leadership, collaboration, system design, SQL, REST API, Git, and data structures."
+      ].join(" "),
+      "sde-ii"
+    );
+
+    expect(result.score).toBeGreaterThanOrEqual(75);
+    expect(result.matchedSkills).toEqual(
+      expect.arrayContaining(["communication", "leadership", "collaboration", "aws", "git"])
+    );
+    expect(result.explanationDetails.certifications.matchedItems).toEqual(
+      expect.arrayContaining(["AWS Certified Developer Associate"])
+    );
+    expect(result.explanationDetails.experience.meetsIdeal).toBe(true);
+    expect(result.explanationDetails.softSkills.matched).toBeGreaterThanOrEqual(3);
+  });
+
+  it("surfaces readiness gaps when certification or experience signals are missing", () => {
+    const result = analyzeResume(
+      "Product manager with 2 years experience, strong communication, analytics, SQL, and roadmapping.",
+      "product-manager"
+    );
+
+    expect(result.explanationDetails.experience.meetsMinimum).toBe(false);
+    expect(result.explanationDetails.certifications.missing).toEqual(expect.arrayContaining(["pmp", "scrum master"]));
+    expect(result.missingSkills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "experience",
+          skill: "3+ years of experience"
+        }),
+        expect.objectContaining({
+          category: "certification",
+          skill: "pmp"
+        })
+      ])
+    );
   });
 
   it("extracts structured resume data and masks demographic signals", () => {
@@ -97,6 +155,7 @@ describe("skill matching engine", () => {
     });
 
     expect(analysis.candidateName).toBe("Alex Smith");
+    expect(analysis.aiInsight).toBeNull();
     expect(analysis.structured.certifications.join(" ")).toMatch(/AWS Certified|Cloud Practitioner/i);
     expect(analysis.structured.location).toBeNull();
     expect(maskDemographicSignals(analysis.structured.biasMaskedText)).toContain("[email masked]");
