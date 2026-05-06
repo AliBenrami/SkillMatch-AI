@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import PDFDocument from "pdfkit";
-import { signInDemoRecruiter } from "./auth-helpers";
+import { signInDemoAdmin } from "./auth-helpers";
 import { pickDashboardResume } from "./dashboard-upload-helpers";
 
 const shotDir = path.join(process.cwd(), "ui-review-screenshots");
@@ -54,12 +54,13 @@ test("captures auth and dashboard screens for visual review", async ({ page, bro
 
   await page.goto("/signup");
   await expect(page.getByRole("heading", { name: "Create Talent Match account" })).toBeVisible();
+  await expect(page.getByText("Signup is not available in demo memory mode.")).toBeVisible();
   await page.screenshot({
     path: path.join(shotDir, `02-signup-${tag}.png`),
     fullPage: true
   });
 
-  await signInDemoRecruiter(page);
+  await signInDemoAdmin(page);
   await expect(page.getByRole("navigation", { name: "Sections" })).toBeVisible();
   await page.screenshot({
     path: path.join(shotDir, `03-dashboard-empty-${tag}.png`),

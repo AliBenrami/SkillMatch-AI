@@ -13,11 +13,15 @@ import {
   FileText,
   GraduationCap,
   LayoutDashboard,
+  LockKeyhole,
   Search,
   LogOut,
+  RefreshCw,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
+  Target,
   Trash2,
   UploadCloud,
   Users,
@@ -26,10 +30,12 @@ import {
 } from "lucide-react";
 import { roles, type RoleRequirement } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
+import { canAccess, type AccessArea } from "@/lib/auth-permissions";
 import type {
   AnalysisRecord,
   AuditEvent,
   CandidateDuplicateWarning,
+  SavedTargetRole,
 } from "@/lib/db";
 import type { CandidateAnalysis } from "@/lib/skillmatch";
 
@@ -56,14 +62,83 @@ type View =
   | "audit"
   | "settings";
 
-const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "analyses", label: "Analyses", icon: BarChart3 },
-  { id: "learning", label: "Learning", icon: BookOpen },
-  { id: "workforce", label: "Workforce", icon: Users },
-  { id: "audit", label: "Audit Log", icon: ShieldCheck },
-  { id: "settings", label: "Settings", icon: Settings },
+type LoadStatus = "loading" | "ready" | "forbidden" | "error";
+type NavAccess = "all" | "candidate_analysis" | AccessArea;
+
+const navItems: Array<{
+  id: View;
+  label: string;
+  icon: LucideIcon;
+  access: NavAccess;
+}> = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, access: "all" },
+  {
+    id: "analyses",
+    label: "Analyses",
+    icon: BarChart3,
+    access: "candidate_analysis",
+  },
+  { id: "learning", label: "Learning", icon: BookOpen, access: "learning" },
+  { id: "workforce", label: "Workforce", icon: Users, access: "recruiter" },
+  { id: "audit", label: "Audit Log", icon: ShieldCheck, access: "admin" },
+  { id: "settings", label: "Settings", icon: Settings, access: "all" },
 ];
+
+const viewIds = new Set<View>(navItems.map((item) => item.id));
+
+function parseView(value?: string): View | null {
+  return value && viewIds.has(value as View) ? (value as View) : null;
+}
+
+function canOpenAccess(user: SessionUser, access: NavAccess) {
+  if (access === "all") {
+    return true;
+  }
+  if (access === "candidate_analysis") {
+    return canAccess(user, "recruiter") || canAccess(user, "learning");
+  }
+
+  return canAccess(user, access);
+}
+
+function canOpenView(user: SessionUser, view: View) {
+  return canOpenAccess(
+    user,
+    navItems.find((item) => item.id === view)?.access ?? "all",
+  );
+}
+
+function getRestrictedViewCopy(view: View) {
+  if (view === "analyses") {
+    return {
+      title: "Analyses",
+      text: "Recruiters, hiring managers, learning and development, and system administrators can view organization-wide analysis history.",
+    };
+  }
+  if (view === "learning") {
+    return {
+      title: "Learning",
+      text: "Learning and development or system administrator access is required to assign modules to saved candidate resumes.",
+    };
+  }
+  if (view === "workforce") {
+    return {
+      title: "Workforce",
+      text: "Recruiter, hiring manager, or system administrator access is required for workforce-level role coverage.",
+    };
+  }
+  return {
+    title: "Audit Log",
+    text: "System administrators can view login, upload, recommendation, and recruiter override events.",
+  };
+}
+
+async function readApiError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => ({}))) as {
+    error?: string;
+  };
+  return payload.error ?? fallback;
+}
 
 const technologyOptions = Array.from(
   new Set(
@@ -172,15 +247,20 @@ function CandidateResumeFileLinks({
 export default function Dashboard({
   user,
   enableE2eFileHook = false,
+  initialView,
 }: {
   user: SessionUser;
   enableE2eFileHook?: boolean;
+  initialView?: string;
 }) {
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>(
+    () => parseView(initialView) ?? "dashboard",
+  );
   const [roleId, setRoleId] = useState("sde-ii");
   const [files, setFiles] = useState<File[]>([]);
   const [candidates, setCandidates] = useState<CandidateAnalysis[]>([]);
   const [analyses, setAnalyses] = useState<AnalysisRecord[]>([]);
+  const [savedRoles, setSavedRoles] = useState<SavedTargetRole[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [failures, setFailures] = useState<UploadResponse["failures"]>([]);
   const [uploadDuplicateWarnings, setUploadDuplicateWarnings] = useState<
@@ -188,6 +268,12 @@ export default function Dashboard({
   >([]);
   const [overrideCandidate, setOverrideCandidate] =
     useState<CandidateAnalysis | null>(null);
+  const [manualRestrictedView, setManualRestrictedView] = useState<
+    View | null
+  >(() => {
+    const parsedView = parseView(initialView);
+    return parsedView && !canOpenView(user, parsedView) ? parsedView : null;
+  });
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
   const [selectedLearningCandidateId, setSelectedLearningCandidateId] =
     useState<string>("");
@@ -198,10 +284,18 @@ export default function Dashboard({
     "idle" | "saving"
   >("idle");
   const [isUploading, setIsUploading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [notice, setNotice] = useState("");
-  const [analysisHistoryStatus, setAnalysisHistoryStatus] = useState<
-    "loading" | "ready" | "forbidden" | "error"
-  >("loading");
+  const [refreshError, setRefreshError] = useState("");
+  const [candidateStatus, setCandidateStatus] =
+    useState<LoadStatus>("loading");
+  const [analysisHistoryStatus, setAnalysisHistoryStatus] =
+    useState<LoadStatus>("loading");
+  const [savedRolesStatus, setSavedRolesStatus] =
+    useState<LoadStatus>("loading");
+  const [auditStatus, setAuditStatus] = useState<LoadStatus>(
+    canAccess(user, "admin") ? "loading" : "forbidden",
+  );
   const [query, setQuery] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [educationFilter, setEducationFilter] = useState("");
@@ -259,6 +353,24 @@ export default function Dashboard({
   const bestRecommendation =
     selectedRoleMatch ?? selectedCandidate?.topPositions[0];
   const selectedResult = selectedRoleMatch ?? bestRecommendation;
+
+  const savedCurrentRole = savedRoles.find((role) => role.roleId === roleId);
+  const accessibleNavItems = useMemo(
+    () => navItems.filter((item) => canOpenAccess(user, item.access)),
+    [user],
+  );
+  const firstAccessibleView = accessibleNavItems[0]?.id ?? "dashboard";
+  const userCanViewAnalysisHistory =
+    canAccess(user, "recruiter") || canAccess(user, "learning");
+  const userCanViewAudit = canAccess(user, "admin");
+  const activeViewAllowed = canOpenView(user, view);
+  const showRestrictedView =
+    !activeViewAllowed && manualRestrictedView === view;
+  const screenView: View | null = showRestrictedView
+    ? null
+    : activeViewAllowed
+      ? view
+      : firstAccessibleView;
 
   const workforceGaps = useMemo(() => {
     const counts = new Map<string, number>();
@@ -375,81 +487,182 @@ export default function Dashboard({
       const candidateQuery = candidateParams.size
         ? `?${candidateParams.toString()}`
         : "";
-      const auditRequest =
-        user.role === "system_admin"
-          ? fetch("/api/audit")
-          : Promise.resolve(null);
-
       const skipCandidates = Boolean(options?.skipCandidates);
-      const [candidateResponse, analysisResponse, auditResponse] =
-        await Promise.all([
+      const errors: string[] = [];
+
+      setIsRefreshing(true);
+      setRefreshError("");
+      if (!skipCandidates) {
+        setCandidateStatus("loading");
+      }
+      setAnalysisHistoryStatus(
+        userCanViewAnalysisHistory ? "loading" : "forbidden",
+      );
+      setSavedRolesStatus("loading");
+      setAuditStatus(userCanViewAudit ? "loading" : "forbidden");
+
+      try {
+        const [
+          candidateResponse,
+          analysisResponse,
+          savedRolesResponse,
+          auditResponse,
+        ] = await Promise.all([
           skipCandidates
             ? Promise.resolve(null)
             : fetch(`/api/candidates${candidateQuery}`),
-          fetch("/api/analyses"),
-          auditRequest,
+          userCanViewAnalysisHistory
+            ? fetch("/api/analyses")
+            : Promise.resolve(null),
+          fetch("/api/saved-roles"),
+          userCanViewAudit ? fetch("/api/audit") : Promise.resolve(null),
         ]);
 
-      if (candidateResponse) {
-        if (candidateResponse.ok) {
-          const payload = (await candidateResponse.json()) as {
-            candidates: CandidateAnalysis[];
-          };
-          setCandidates(payload.candidates);
-          setSelectedCandidateId((current) => {
-            const ids = new Set(payload.candidates.map((c) => c.id));
-            if (!payload.candidates.length) {
-              return "";
+        if (candidateResponse) {
+          if (candidateResponse.ok) {
+            const payload = (await candidateResponse.json()) as {
+              candidates: CandidateAnalysis[];
+            };
+            setCandidates(payload.candidates);
+            setCandidateStatus("ready");
+            setSelectedCandidateId((current) => {
+              const ids = new Set(payload.candidates.map((c) => c.id));
+              if (!payload.candidates.length) {
+                return "";
+              }
+              if (current && ids.has(current)) {
+                return current;
+              }
+              return payload.candidates[0]!.id;
+            });
+            setSelectedLearningCandidateId((current) => {
+              const ids = new Set(payload.candidates.map((c) => c.id));
+              if (!payload.candidates.length) {
+                return "";
+              }
+              if (current && ids.has(current)) {
+                return current;
+              }
+              return payload.candidates[0]!.id;
+            });
+          } else if (candidateResponse.status === 403) {
+            setCandidateStatus("forbidden");
+            errors.push("Candidate records are restricted for this role.");
+          } else {
+            setCandidateStatus("error");
+            errors.push(
+              await readApiError(
+                candidateResponse,
+                `Could not load candidates (HTTP ${candidateResponse.status}).`,
+              ),
+            );
+          }
+        }
+
+        if (analysisResponse) {
+          if (analysisResponse.ok) {
+            const payload = (await analysisResponse.json()) as {
+              analyses: AnalysisRecord[];
+            };
+            setAnalyses(payload.analyses);
+            setAnalysisHistoryStatus("ready");
+          } else if (analysisResponse.status === 403) {
+            setAnalyses([]);
+            setAnalysisHistoryStatus("forbidden");
+            if (userCanViewAnalysisHistory) {
+              errors.push(
+                "Analysis history access was denied unexpectedly.",
+              );
             }
-            if (current && ids.has(current)) {
-              return current;
-            }
-            return payload.candidates[0]!.id;
-          });
-          setSelectedLearningCandidateId((current) => {
-            const ids = new Set(payload.candidates.map((c) => c.id));
-            if (!payload.candidates.length) {
-              return "";
-            }
-            if (current && ids.has(current)) {
-              return current;
-            }
-            return payload.candidates[0]!.id;
-          });
+          } else {
+            setAnalysisHistoryStatus("error");
+            errors.push(
+              await readApiError(
+                analysisResponse,
+                `Could not load analysis history (HTTP ${analysisResponse.status}).`,
+              ),
+            );
+          }
         } else {
-          const payload = (await candidateResponse
-            .json()
-            .catch(() => ({}))) as {
-            error?: string;
+          setAnalyses([]);
+        }
+
+        if (savedRolesResponse.ok) {
+          const payload = (await savedRolesResponse.json()) as {
+            savedRoles: SavedTargetRole[];
           };
-          setNotice(
-            payload.error ??
-              `Could not load candidates (HTTP ${candidateResponse.status}).`,
+          setSavedRoles(payload.savedRoles);
+          setSavedRolesStatus("ready");
+        } else {
+          setSavedRolesStatus("error");
+          errors.push(
+            await readApiError(
+              savedRolesResponse,
+              `Could not load saved target roles (HTTP ${savedRolesResponse.status}).`,
+            ),
           );
         }
-      }
 
-      if (analysisResponse.ok) {
-        const payload = (await analysisResponse.json()) as {
-          analyses: AnalysisRecord[];
-        };
-        setAnalyses(payload.analyses);
-        setAnalysisHistoryStatus("ready");
-      } else if (analysisResponse.status === 403) {
-        setAnalyses([]);
-        setAnalysisHistoryStatus("forbidden");
-      } else {
-        setAnalysisHistoryStatus("error");
-      }
+        if (auditResponse) {
+          if (auditResponse.ok) {
+            const payload = (await auditResponse.json()) as {
+              events: AuditEvent[];
+            };
+            setAuditEvents(payload.events);
+            setAuditStatus("ready");
+          } else if (auditResponse.status === 403) {
+            setAuditEvents([]);
+            setAuditStatus("forbidden");
+            if (userCanViewAudit) {
+              errors.push("Audit log access was denied unexpectedly.");
+            }
+          } else {
+            setAuditStatus("error");
+            errors.push(
+              await readApiError(
+                auditResponse,
+                `Could not load audit log (HTTP ${auditResponse.status}).`,
+              ),
+            );
+          }
+        } else {
+          setAuditEvents([]);
+        }
 
-      if (auditResponse?.ok) {
-        const payload = (await auditResponse.json()) as {
-          events: AuditEvent[];
-        };
-        setAuditEvents(payload.events);
+        if (errors.length) {
+          const message = errors.join(" ");
+          setRefreshError(message);
+          setNotice(message);
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Could not refresh dashboard data.";
+        setRefreshError(message);
+        setNotice(message);
+        if (!skipCandidates) {
+          setCandidateStatus("error");
+        }
+        if (userCanViewAnalysisHistory) {
+          setAnalysisHistoryStatus("error");
+        }
+        setSavedRolesStatus("error");
+        if (userCanViewAudit) {
+          setAuditStatus("error");
+        }
+      } finally {
+        setIsRefreshing(false);
       }
     },
-    [educationFilter, locationFilter, minYearsFilter, skillFilter, user.role],
+    [
+      educationFilter,
+      locationFilter,
+      minYearsFilter,
+      skillFilter,
+      userCanViewAnalysisHistory,
+      userCanViewAudit,
+    ],
   );
 
   useEffect(() => {
@@ -643,6 +856,51 @@ export default function Dashboard({
     }
   }
 
+  async function saveCurrentTargetRole() {
+    const response = await fetch("/api/saved-roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roleId,
+        targetScore: 80,
+        currentScore: selectedResult?.score ?? null,
+        matchedSkills,
+        missingSkills: missingSkills.map((gap) => gap.skill),
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      setNotice(payload.error ?? "Could not bookmark this role for Learning.");
+      return;
+    }
+
+    const payload = (await response.json()) as { savedRole: SavedTargetRole };
+    setSavedRoles((current) => [
+      payload.savedRole,
+      ...current.filter((role) => role.id !== payload.savedRole.id),
+    ]);
+    setNotice(
+      `Pinned "${selectedRole.title}" for Learning. Candidate analyses stay under Analyses.`,
+    );
+  }
+
+  async function removeSavedRole(id: string) {
+    const response = await fetch(`/api/saved-roles?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (response.ok) {
+      setSavedRoles((current) => current.filter((role) => role.id !== id));
+      return;
+    }
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    setNotice(payload.error ?? "Could not remove this bookmark. Try again.");
+  }
+
   async function assignLearningModule(moduleId: string, assigned: boolean) {
     if (!selectedLearningCandidate) {
       setNotice("Select a resume before assigning learning modules.");
@@ -695,10 +953,40 @@ export default function Dashboard({
 
   const matchedSkills = selectedResult?.matchedSkills ?? [];
   const missingSkills = selectedResult?.missingSkills ?? [];
-  const userCanSubmitRecruiterOverride =
-    user.role === "recruiter" ||
-    user.role === "hiring_manager" ||
-    user.role === "system_admin";
+  const userCanSubmitRecruiterOverride = canAccess(user, "recruiter");
+
+  const updateViewUrl = useCallback((nextView: View) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    if (nextView === "dashboard") {
+      url.searchParams.delete("view");
+    } else {
+      url.searchParams.set("view", nextView);
+    }
+    window.history.replaceState(
+      null,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, []);
+
+  function selectView(nextView: View) {
+    const resolvedView = canOpenView(user, nextView)
+      ? nextView
+      : firstAccessibleView;
+    setManualRestrictedView(null);
+    setView(resolvedView);
+    updateViewUrl(resolvedView);
+  }
+
+  useEffect(() => {
+    if (screenView && screenView !== view) {
+      updateViewUrl(screenView);
+    }
+  }, [screenView, updateViewUrl, view]);
 
   return (
     <main className="product-shell">
@@ -711,6 +999,20 @@ export default function Dashboard({
             </div>
           </div>
           <div className="header-actions">
+            <button
+              className="icon-text-button"
+              type="button"
+              disabled={isUploading || isRefreshing}
+              title={
+                isUploading
+                  ? "Wait for upload to finish before refreshing."
+                  : "Reload candidates, bookmarks, analysis history, and audit data"
+              }
+              onClick={() => void refreshRecords()}
+            >
+              <RefreshCw aria-hidden="true" />
+              {isRefreshing ? "Refreshing..." : "Refresh data"}
+            </button>
             <span className="session-meta">
               {user.name}
               <span className="session-meta-role">
@@ -725,14 +1027,14 @@ export default function Dashboard({
         </header>
 
         <nav className="top-nav" aria-label="Sections">
-          {navItems.map((item) => {
+          {accessibleNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <button
-                className={`top-nav-item ${view === item.id ? "active" : ""}`}
+                className={`top-nav-item ${screenView === item.id ? "active" : ""}`}
                 key={item.id}
                 type="button"
-                onClick={() => setView(item.id)}
+                onClick={() => selectView(item.id)}
               >
                 <Icon aria-hidden="true" />
                 {item.label}
@@ -742,7 +1044,30 @@ export default function Dashboard({
         </nav>
 
         <section className="main-product">
-          {view === "dashboard" ? (
+          {isRefreshing ? (
+            <div className="refresh-status" role="status" aria-live="polite">
+              <RefreshCw aria-hidden="true" />
+              Refreshing workspace data...
+            </div>
+          ) : null}
+          {refreshError ? (
+            <div className="refresh-alert" role="alert">
+              <AlertTriangle aria-hidden="true" />
+              <span>{refreshError}</span>
+              <button
+                className="icon-text-button"
+                type="button"
+                disabled={isRefreshing}
+                onClick={() => void refreshRecords()}
+              >
+                <RefreshCw aria-hidden="true" />
+                Retry
+              </button>
+            </div>
+          ) : null}
+
+          {showRestrictedView ? <RestrictedView user={user} view={view} /> : null}
+          {screenView === "dashboard" ? (
             <>
               <section className="concept-grid dashboard-workbench">
                 <section className="concept-panel upload-panel dashboard-left-rail">
@@ -968,6 +1293,20 @@ export default function Dashboard({
                 </section>
 
                 <aside className="right-stack dashboard-right-rail">
+                  <SavedTargetRolesPanel
+                    currentRoleSaved={Boolean(savedCurrentRole)}
+                    roles={savedRoles}
+                    status={savedRolesStatus}
+                    bookmarkDisabled={!selectedResult}
+                    bookmarkDisabledReason="Run analysis on at least one résumé to snapshot match scores for this role."
+                    onRemove={removeSavedRole}
+                    onSave={saveCurrentTargetRole}
+                    onSelect={(id) => {
+                      setRoleId(id);
+                      selectView("learning");
+                    }}
+                  />
+                  <AiInsightPanel insight={selectedCandidate?.aiInsight ?? null} />
                   <RecentCandidates
                     candidates={candidates}
                     onSelect={setSelectedCandidateId}
@@ -977,7 +1316,7 @@ export default function Dashboard({
             </>
           ) : null}
 
-          {view === "analyses" ? (
+          {screenView === "analyses" ? (
             <section className="screen-stack">
               <div className="screen-toolbar">
                 <label className="search-box">
@@ -988,6 +1327,14 @@ export default function Dashboard({
                     placeholder="Search candidates"
                   />
                 </label>
+                <button
+                  className="icon-text-button"
+                  disabled={isRefreshing}
+                  onClick={() => void refreshRecords()}
+                >
+                  <RefreshCw aria-hidden="true" />
+                  {isRefreshing ? "Refreshing..." : "Refresh"}
+                </button>
               </div>
               <div className="filter-toolbar" aria-label="Candidate filters">
                 <TechnologyChipFilter
@@ -1033,45 +1380,86 @@ export default function Dashboard({
                 </label>
               </div>
               <section className="data-grid">
-                {filteredCandidates.map((candidate) => (
-                  <article className="candidate-card" key={candidate.id}>
-                    <div className="panel-heading">
-                      <h2>{candidate.candidateName}</h2>
-                      <em className="status-chip">
-                        {candidate.topPositions[0]?.score ?? 0}%
-                      </em>
-                    </div>
-                    <p>
-                      {candidate.fileName}{" "}
-                      <CandidateResumeFileLinks candidate={candidate} />
-                    </p>
-                    <strong style={{ fontSize: "13px" }}>
-                      {candidate.topPositions[0]?.role.title ??
-                        "No recommendation"}
-                    </strong>
-                    <span className="candidate-meta">
-                      {candidate.structured.skills.slice(0, 4).join(", ") ||
-                        "No skills extracted"}
-                      {candidate.structured.location
-                        ? ` | ${candidate.structured.location}`
-                        : ""}
-                      {candidate.structured.yearsExperience !== null
-                        ? ` | ${candidate.structured.yearsExperience} yrs`
-                        : ""}
+                {candidateStatus === "loading" ? (
+                  <LoadingPanel
+                    title="Loading candidates"
+                    text="Refreshing saved candidate recommendations and filters."
+                  />
+                ) : null}
+                {candidateStatus === "error" && candidates.length === 0 ? (
+                  <ErrorPanel
+                    title="Could not load candidates"
+                    text="The candidate list did not refresh. Try again in a moment."
+                    onRetry={() => void refreshRecords()}
+                  />
+                ) : null}
+                {candidateStatus === "error" && candidates.length > 0 ? (
+                  <div
+                    className="error-message col-span-full m-0 mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px]"
+                    role="alert"
+                  >
+                    <span>
+                      Could not refresh candidates. Showing the last loaded
+                      analyses.
                     </span>
-                    <small>{candidate.topPositions[0]?.explanation}</small>
-                    {userCanSubmitRecruiterOverride ? (
-                      <button
-                        type="button"
-                        className="icon-text-button mt-3 text-left self-start"
-                        onClick={() => setOverrideCandidate(candidate)}
-                      >
-                        Flag recruiter override (audit-only)
-                      </button>
-                    ) : null}
-                  </article>
-                ))}
-                {!filteredCandidates.length ? (
+                    <button
+                      className="icon-text-button"
+                      type="button"
+                      disabled={isRefreshing}
+                      onClick={() => void refreshRecords()}
+                    >
+                      <RefreshCw aria-hidden="true" />
+                      {isRefreshing ? "Refreshing..." : "Retry candidates"}
+                    </button>
+                  </div>
+                ) : null}
+                {candidateStatus === "forbidden" ? (
+                  <EmptyPanel
+                    title="Candidate records are restricted"
+                    text="Your current role cannot view saved candidate recommendations."
+                  />
+                ) : null}
+                {candidateStatus !== "loading" && candidateStatus !== "forbidden"
+                  ? filteredCandidates.map((candidate) => (
+                      <article className="candidate-card" key={candidate.id}>
+                        <div className="panel-heading">
+                          <h2>{candidate.candidateName}</h2>
+                          <em className="status-chip">
+                            {candidate.topPositions[0]?.score ?? 0}%
+                          </em>
+                        </div>
+                        <p>
+                          {candidate.fileName}{" "}
+                          <CandidateResumeFileLinks candidate={candidate} />
+                        </p>
+                        <strong style={{ fontSize: "13px" }}>
+                          {candidate.topPositions[0]?.role.title ??
+                            "No recommendation"}
+                        </strong>
+                        <span className="candidate-meta">
+                          {candidate.structured.skills.slice(0, 4).join(", ") ||
+                            "No skills extracted"}
+                          {candidate.structured.location
+                            ? ` | ${candidate.structured.location}`
+                            : ""}
+                          {candidate.structured.yearsExperience !== null
+                            ? ` | ${candidate.structured.yearsExperience} yrs`
+                            : ""}
+                        </span>
+                        <small>{candidate.topPositions[0]?.explanation}</small>
+                        {userCanSubmitRecruiterOverride ? (
+                          <button
+                            type="button"
+                            className="icon-text-button mt-3 text-left self-start"
+                            onClick={() => setOverrideCandidate(candidate)}
+                          >
+                            Flag recruiter override (audit-only)
+                          </button>
+                        ) : null}
+                      </article>
+                    ))
+                  : null}
+                {candidateStatus === "ready" && !filteredCandidates.length ? (
                   candidates.length > 0 ? (
                     <EmptyPanel
                       title="No matching candidates"
@@ -1092,12 +1480,14 @@ export default function Dashboard({
               </section>
               <HistoryTable
                 analyses={analyses}
+                isRefreshing={isRefreshing}
+                onRetry={() => void refreshRecords()}
                 status={analysisHistoryStatus}
               />
             </section>
           ) : null}
 
-          {view === "learning" ? (
+          {screenView === "learning" ? (
             <section className="screen-stack learning-screen">
               <div className="screen-toolbar learning-toolbar">
                 <div>
@@ -1107,6 +1497,15 @@ export default function Dashboard({
                     target, and assign modules to that employee.
                   </p>
                 </div>
+                <button
+                  className="icon-text-button"
+                  type="button"
+                  disabled={isRefreshing}
+                  onClick={() => void refreshRecords()}
+                >
+                  <RefreshCw aria-hidden="true" />
+                  {isRefreshing ? "Refreshing..." : "Refresh"}
+                </button>
               </div>
               <section className="learning-layout">
                 <LearningResumeRoster
@@ -1133,15 +1532,48 @@ export default function Dashboard({
                   selectedMatch={selectedLearningMatch}
                 />
               </section>
+              <section className="metric-grid">
+                <Metric label="Saved target roles" value={savedRoles.length} />
+                <Metric
+                  label="Current role progress"
+                  value={
+                    savedCurrentRole
+                      ? `${savedCurrentRole.progressPercent}%`
+                      : "Not saved"
+                  }
+                />
+                <Metric
+                  label="Assigned modules"
+                  value={
+                    selectedLearningCandidate?.assignedLearningModules?.length ??
+                    0
+                  }
+                />
+              </section>
+              <SavedRoleProgress
+                roles={savedRoles}
+                status={savedRolesStatus}
+                onRemove={removeSavedRole}
+                onSelect={setRoleId}
+              />
             </section>
           ) : null}
 
-          {view === "workforce" ? (
+          {screenView === "workforce" ? (
             <section className="screen-stack">
               <div className="screen-toolbar">
                 <span className="text-[13px] text-muted">
                   Counts reflect analyzed candidates from this workspace.
                 </span>
+                <button
+                  className="icon-text-button"
+                  type="button"
+                  disabled={isRefreshing}
+                  onClick={() => void refreshRecords()}
+                >
+                  <RefreshCw aria-hidden="true" />
+                  {isRefreshing ? "Refreshing..." : "Refresh"}
+                </button>
               </div>
               <section className="metric-grid">
                 <Metric label="Open role families" value={roles.length} />
@@ -1260,19 +1692,37 @@ export default function Dashboard({
             </section>
           ) : null}
 
-          {view === "audit" ? (
+          {screenView === "audit" ? (
             <section className="screen-stack">
               <section className="concept-panel audit-log-panel">
                 <div className="panel-heading">
                   <h2>Audit Log</h2>
                   <span>
-                    {user.role === "system_admin"
+                    {userCanViewAudit
                       ? `${auditEvents.length} events`
                       : "Admin only"}
                   </span>
                 </div>
-                {user.role === "system_admin" ? (
-                  <AuditTable events={auditEvents} />
+                {userCanViewAudit ? (
+                  <>
+                    <div className="mb-3 flex flex-wrap justify-end gap-2">
+                      <button
+                        className="icon-text-button"
+                        type="button"
+                        disabled={isRefreshing}
+                        onClick={() => void refreshRecords()}
+                      >
+                        <RefreshCw aria-hidden="true" />
+                        {isRefreshing ? "Refreshing..." : "Refresh log"}
+                      </button>
+                    </div>
+                    <AuditTable
+                      events={auditEvents}
+                      isRefreshing={isRefreshing}
+                      onRetry={() => void refreshRecords()}
+                      status={auditStatus}
+                    />
+                  </>
                 ) : (
                   <EmptyPanel
                     title="Restricted screen"
@@ -1283,7 +1733,7 @@ export default function Dashboard({
             </section>
           ) : null}
 
-          {view === "settings" ? (
+          {screenView === "settings" ? (
             <section className="screen-stack">
               <form
                 className="concept-panel settings-grid"
@@ -2083,6 +2533,246 @@ function TechnologyChipFilter({
   );
 }
 
+function SavedTargetRolesPanel({
+  currentRoleSaved,
+  roles,
+  status,
+  bookmarkDisabled,
+  bookmarkDisabledReason,
+  onRemove,
+  onSave,
+  onSelect,
+}: {
+  currentRoleSaved: boolean;
+  roles: SavedTargetRole[];
+  status: LoadStatus;
+  bookmarkDisabled?: boolean;
+  bookmarkDisabledReason?: string;
+  onRemove: (id: string) => void;
+  onSave: () => void;
+  onSelect: (roleId: string) => void;
+}) {
+  return (
+    <section
+      className="concept-panel saved-target-panel"
+      aria-labelledby="saved-target-roles-heading"
+    >
+      <div className="panel-heading">
+        <h2 id="saved-target-roles-heading">Saved Target Roles</h2>
+        <span>{status === "loading" ? "..." : roles.length}</span>
+      </div>
+      <p
+        id="saved-target-roles-help"
+        className="m-0 mb-3 text-[12px] leading-snug text-muted"
+      >
+        Candidates are persisted when you run analysis (see{" "}
+        <strong className="font-semibold text-ink">Analyses</strong>). Bookmark
+        the <strong className="font-semibold text-ink">comparison role</strong>{" "}
+        on the Dashboard to pin gap tracking and learning picks—optional,
+        separate from storing résumés.
+      </p>
+      <button
+        className="primary-action"
+        type="button"
+        onClick={onSave}
+        aria-describedby="saved-target-roles-help"
+        disabled={Boolean(bookmarkDisabled)}
+        title={bookmarkDisabled ? bookmarkDisabledReason : undefined}
+      >
+        <BookmarkCheck aria-hidden="true" />
+        {currentRoleSaved
+          ? "Refresh bookmark & snapshot"
+          : "Bookmark role for Learning"}
+      </button>
+      {status === "loading" ? (
+        <p className="list-placeholder" role="status">
+          Loading saved target roles...
+        </p>
+      ) : null}
+      {status === "error" ? (
+        <p className="error-message" role="alert">
+          Could not load saved target roles. Use Refresh to try again.
+        </p>
+      ) : null}
+      {status !== "loading" && roles.length ? (
+        <ul className="saved-role-list">
+          {roles.slice(0, 3).map((role) => (
+            <li key={role.id}>
+              <button type="button" onClick={() => onSelect(role.roleId)}>
+                <Target aria-hidden="true" />
+                <span>
+                  <strong>{role.roleTitle}</strong>
+                  <small>
+                    {role.currentScore === null
+                      ? "No score yet"
+                      : `${role.currentScore}% current match`}
+                  </small>
+                </span>
+                <em>{role.progressPercent}%</em>
+              </button>
+              <button
+                aria-label={`Remove ${role.roleTitle}`}
+                className="queue-icon-button"
+                onClick={() => onRemove(role.id)}
+                title={`Remove ${role.roleTitle}`}
+                type="button"
+              >
+                <X aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : status === "ready" && !roles.length ? (
+        <p className="list-placeholder">
+          Bookmark a role above to unlock Learning progress—not required to
+          keep analyzed candidates.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function SavedRoleProgress({
+  roles,
+  status,
+  onRemove,
+  onSelect,
+}: {
+  roles: SavedTargetRole[];
+  status: LoadStatus;
+  onRemove: (id: string) => void;
+  onSelect: (roleId: string) => void;
+}) {
+  return (
+    <section className="concept-panel">
+      <div className="panel-heading">
+        <h2>Target Role Progress</h2>
+        <span>
+          {status === "loading"
+            ? "Loading"
+            : roles.length
+              ? "Employee plan"
+              : "No saved targets"}
+        </span>
+      </div>
+      {status === "loading" ? (
+        <p className="list-placeholder" role="status">
+          Loading target roles...
+        </p>
+      ) : null}
+      {status === "error" ? (
+        <p className="error-message" role="alert">
+          Could not load target role progress. Use Refresh to try again.
+        </p>
+      ) : null}
+      {status !== "loading" && roles.length ? (
+        <div className="saved-progress-grid">
+          {roles.map((role) => (
+            <article key={role.id}>
+              <div>
+                <strong>{role.roleTitle}</strong>
+                <span>
+                  {role.missingSkills.length
+                    ? `${role.missingSkills.slice(0, 3).join(", ")} gaps`
+                    : "No tracked gaps"}
+                </span>
+              </div>
+              <meter min={0} max={100} value={role.progressPercent} />
+              <em>
+                {role.progressPercent}% to {role.targetScore}% goal
+              </em>
+              <button
+                className="icon-text-button"
+                type="button"
+                onClick={() => onSelect(role.roleId)}
+              >
+                <Target aria-hidden="true" />
+                View learning
+              </button>
+              <button
+                className="queue-icon-button"
+                type="button"
+                onClick={() => onRemove(role.id)}
+                aria-label={`Remove ${role.roleTitle}`}
+              >
+                <Trash2 aria-hidden="true" />
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : status === "ready" && !roles.length ? (
+        <p className="list-placeholder">
+          No saved target roles yet. Bookmark a comparison role from the
+          dashboard sidebar to track gap progress on Learning. Uploaded
+          candidates already appear under Analyses; that action only pins the job
+          role for progress.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function AiInsightPanel({
+  insight,
+}: {
+  insight: CandidateAnalysis["aiInsight"];
+}) {
+  return (
+    <section className="concept-panel ai-insight-panel">
+      <div className="panel-heading">
+        <h2>
+          <Sparkles aria-hidden="true" className="inline-icon" />
+          AI resume review
+        </h2>
+        <span>Advisory</span>
+      </div>
+      {insight ? (
+        <div className="ai-insight-body">
+          <p className="ai-insight-summary">{insight.summary}</p>
+          <div className="ai-insight-columns">
+            <div>
+              <h3>Strengths</h3>
+              <ul>
+                {insight.strengths.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3>Development areas</h3>
+              <ul>
+                {insight.developmentAreas.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div>
+            <h3>Role fit</h3>
+            <p>{insight.roleFitNotes}</p>
+          </div>
+          {insight.followUpQuestions.length ? (
+            <div>
+              <h3>Follow-up questions</h3>
+              <ul className="follow-up-list">
+                {insight.followUpQuestions.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <p className="list-placeholder">
+          When optional AI resume review is enabled for your workspace, a
+          structured narrative appears after each upload. Skill matching above
+          still runs without it.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function LearningResumeRoster({
   candidates,
   selectedCandidateId,
@@ -2353,6 +3043,58 @@ function EmptyPanel({ title, text }: { title: string; text: string }) {
   );
 }
 
+function LoadingPanel({ title, text }: { title: string; text: string }) {
+  return (
+    <article
+      className="concept-panel empty-panel loading-panel"
+      role="status"
+      aria-live="polite"
+    >
+      <RefreshCw aria-hidden="true" />
+      <h2>{title}</h2>
+      <p>{text}</p>
+    </article>
+  );
+}
+
+function ErrorPanel({
+  title,
+  text,
+  onRetry,
+}: {
+  title: string;
+  text: string;
+  onRetry: () => void;
+}) {
+  return (
+    <article className="concept-panel empty-panel error-panel" role="alert">
+      <AlertTriangle aria-hidden="true" />
+      <h2>{title}</h2>
+      <p>{text}</p>
+      <button className="icon-text-button" type="button" onClick={onRetry}>
+        <RefreshCw aria-hidden="true" />
+        Retry
+      </button>
+    </article>
+  );
+}
+
+function RestrictedView({ user, view }: { user: SessionUser; view: View }) {
+  const copy = getRestrictedViewCopy(view);
+  return (
+    <section className="screen-stack">
+      <article className="concept-panel restricted-panel">
+        <LockKeyhole aria-hidden="true" />
+        <div>
+          <h2>Restricted access: {copy.title}</h2>
+          <p>{copy.text}</p>
+          <span>Current role: {user.role.replace("_", " ")}</span>
+        </div>
+      </article>
+    </section>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <article className="concept-panel metric-card">
@@ -2364,10 +3106,14 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 
 function HistoryTable({
   analyses,
+  isRefreshing,
+  onRetry,
   status,
 }: {
   analyses: AnalysisRecord[];
-  status: "loading" | "ready" | "forbidden" | "error";
+  isRefreshing: boolean;
+  onRetry: () => void;
+  status: LoadStatus;
 }) {
   return (
     <section className="concept-panel audit-log-panel">
@@ -2398,9 +3144,21 @@ function HistoryTable({
         </div>
       ) : null}
       {status === "error" ? (
-        <p className="error-message m-0 text-[13px]" role="alert">
-          Could not load analysis history. Use Refresh or try again in a moment.
-        </p>
+        <div
+          className="error-message m-0 flex flex-wrap items-center justify-between gap-2 text-[13px]"
+          role="alert"
+        >
+          <span>Could not load analysis history. Try again in a moment.</span>
+          <button
+            className="icon-text-button"
+            type="button"
+            disabled={isRefreshing}
+            onClick={onRetry}
+          >
+            <RefreshCw aria-hidden="true" />
+            {isRefreshing ? "Refreshing..." : "Retry history"}
+          </button>
+        </div>
       ) : null}
       {status === "ready" || (status === "error" && analyses.length > 0) ? (
         <div className="audit-log-table">
@@ -2430,8 +3188,46 @@ function HistoryTable({
   );
 }
 
-function AuditTable({ events }: { events: AuditEvent[] }) {
-  if (!events.length) {
+function AuditTable({
+  events,
+  isRefreshing,
+  onRetry,
+  status,
+}: {
+  events: AuditEvent[];
+  isRefreshing: boolean;
+  onRetry: () => void;
+  status: LoadStatus;
+}) {
+  if (status === "loading") {
+    return (
+      <LoadingPanel
+        title="Loading audit events"
+        text="Refreshing the latest admin audit trail."
+      />
+    );
+  }
+
+  if (status === "forbidden") {
+    return (
+      <EmptyPanel
+        title="Audit log restricted"
+        text="System administrator access is required for login, upload, recommendation, and override events."
+      />
+    );
+  }
+
+  if (status === "error" && events.length === 0) {
+    return (
+      <ErrorPanel
+        title="Could not load audit log"
+        text="The audit log did not refresh. Try again in a moment."
+        onRetry={onRetry}
+      />
+    );
+  }
+
+  if (status === "ready" && events.length === 0) {
     return (
       <EmptyPanel
         title="No audit events yet"
@@ -2439,22 +3235,44 @@ function AuditTable({ events }: { events: AuditEvent[] }) {
       />
     );
   }
+
   return (
-    <div className="audit-log-table">
-      <div className="audit-log-row head">
-        <span>Date & Time</span>
-        <span>Action</span>
-        <span>Actor</span>
-        <span>Status</span>
-      </div>
-      {events.map((event) => (
-        <div className="audit-log-row" key={event.id}>
-          <span>{new Date(event.createdAt).toLocaleString()}</span>
-          <span>{event.action.replaceAll("_", " ")}</span>
-          <span>{event.actor}</span>
-          <span className="status-chip">Recorded</span>
+    <>
+      {status === "error" ? (
+        <div
+          className="error-message m-0 mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px]"
+          role="alert"
+        >
+          <span>
+            Could not refresh the audit log. Showing the last loaded events.
+          </span>
+          <button
+            className="icon-text-button"
+            type="button"
+            disabled={isRefreshing}
+            onClick={onRetry}
+          >
+            <RefreshCw aria-hidden="true" />
+            {isRefreshing ? "Refreshing..." : "Retry audit log"}
+          </button>
         </div>
-      ))}
-    </div>
+      ) : null}
+      <div className="audit-log-table" aria-busy={isRefreshing}>
+        <div className="audit-log-row head">
+          <span>Date & Time</span>
+          <span>Action</span>
+          <span>Actor</span>
+          <span>Status</span>
+        </div>
+        {events.map((event) => (
+          <div className="audit-log-row" key={event.id}>
+            <span>{new Date(event.createdAt).toLocaleString()}</span>
+            <span>{event.action.replaceAll("_", " ")}</span>
+            <span>{event.actor}</span>
+            <span className="status-chip">Recorded</span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
