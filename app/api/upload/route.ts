@@ -18,6 +18,9 @@ import { isAllowedResumeUpload } from "@/lib/resume-upload-validation";
 import { serverErrorResponse } from "@/lib/server-api-error";
 import { storeResumeFile } from "@/lib/storage";
 
+/** DOCX parsing (mammoth) requires Node; keeps uploads off the Edge runtime. */
+export const runtime = "nodejs";
+
 const maxFiles = 12;
 const maxRawUploads = 4;
 const maxFileSize = 8 * 1024 * 1024;
@@ -31,181 +34,183 @@ export async function POST(request: Request) {
     }
 
     const formData = await request.formData();
-  const rawFiles = formData
-    .getAll("resumes")
-    .filter((item): item is File => item instanceof File && item.size > 0);
+    const rawFiles = formData
+      .getAll("resumes")
+      .filter((item): item is File => item instanceof File && item.size > 0);
 
-  if (!rawFiles.length) {
-    return NextResponse.json({ error: "Upload at least one PDF, DOCX, TXT, or ZIP file." }, { status: 400 });
-  }
-
-  if (rawFiles.length > maxRawUploads && rawFiles.some((file) => file.name.toLowerCase().endsWith(".zip"))) {
-    return NextResponse.json({ error: `Upload ${maxRawUploads} zip files or fewer at a time.` }, { status: 400 });
-  }
-
-  for (const file of rawFiles) {
-    if (file.name.toLowerCase().endsWith(".zip") && file.size > maxZipFileSize) {
-      return NextResponse.json({ error: "Zip file exceeds 25 MB limit." }, { status: 400 });
+    if (!rawFiles.length) {
+      return NextResponse.json({ error: "Upload at least one PDF, DOCX, TXT, or ZIP file." }, { status: 400 });
     }
-  }
 
-  const expanded = await expandResumeUploads(rawFiles);
-  const files = expanded.files;
-  const failures: Array<{ fileName: string; error: string }> = [...expanded.failures];
-
-  if (!files.length) {
-    return NextResponse.json({ error: "Upload at least one supported resume file.", failures }, { status: 400 });
-  }
-
-  if (files.length > maxFiles) {
-    return NextResponse.json({ error: `Upload ${maxFiles} resumes or fewer at a time, including files inside zips.` }, { status: 400 });
-  }
-
-  const candidates: CandidateAnalysis[] = [];
-  const uploadOutputs: {
-    candidate: CandidateAnalysis;
-    resumeText: string;
-    duplicateKey: string;
-    clusterKey: string;
-  }[] = [];
-  const duplicates: CandidateDuplicateWarning[] = [];
-  const seenDuplicateKeys = new Set<string>();
-  const seenClusterKeys = new Set<string>();
-
-  for (const file of files) {
-    try {
-      if (file.size > maxFileSize) {
-        throw new Error("File exceeds 8 MB limit.");
-      }
-
-      if (!isAllowedResumeUpload(file.name, file.type)) {
-        throw new Error("Only PDF, DOCX, or TXT resumes are supported.");
-      }
-
-      const parsed = await extractResumeText(file);
-      if (parsed.text.length < 20) {
-        throw new Error("Resume text could not be extracted.");
-      }
-
-      const candidateName = inferCandidateName(file.name, parsed.text);
-      const { duplicateKey, clusterKey } = buildCandidateDuplicateIdentity({
-        candidateName,
-        fileName: file.name,
-        resumeText: parsed.text,
-      });
-
-      if (seenDuplicateKeys.has(duplicateKey)) {
-        duplicates.push({
-          type: "exact_duplicate",
-          source: "upload_batch",
-          candidateName,
-          fileName: file.name,
-          duplicateKey,
-          clusterKey,
-          message: "Skipped duplicate resume upload in the same batch.",
-        });
-        continue;
-      }
-
-      if (seenClusterKeys.has(clusterKey)) {
-        duplicates.push({
-          type: "candidate_cluster",
-          source: "upload_batch",
-          candidateName,
-          fileName: file.name,
-          duplicateKey,
-          clusterKey,
-          message: "Candidate is clustered with another resume in the same upload batch.",
-        });
-      }
-
-      seenDuplicateKeys.add(duplicateKey);
-      seenClusterKeys.add(clusterKey);
-
-      const stored = await storeResumeFile({
-        fileName: file.name,
-        contentType: file.type || "application/octet-stream",
-        bytes: parsed.bytes,
-      });
-      const candidate = analyzeCandidateResume({
-        fileName: file.name,
-        resumeText: parsed.text,
-        storageUrl: stored.url,
-      });
-      candidates.push(candidate);
-      uploadOutputs.push({ candidate, resumeText: parsed.text, duplicateKey, clusterKey });
-    } catch (error) {
-      failures.push({
-        fileName: file.name,
-        error: error instanceof Error ? error.message : "Unknown parsing failure",
-      });
+    if (rawFiles.length > maxRawUploads && rawFiles.some((file) => file.name.toLowerCase().endsWith(".zip"))) {
+      return NextResponse.json({ error: `Upload ${maxRawUploads} zip files or fewer at a time.` }, { status: 400 });
     }
-  }
 
-  const aiConfig = getResumeAiInsightConfig();
-  if (aiConfig) {
-    for (const { candidate } of uploadOutputs) {
+    for (const file of rawFiles) {
+      if (file.name.toLowerCase().endsWith(".zip") && file.size > maxZipFileSize) {
+        return NextResponse.json({ error: "Zip file exceeds 25 MB limit." }, { status: 400 });
+      }
+    }
+
+    const expanded = await expandResumeUploads(rawFiles);
+    const files = expanded.files;
+    const failures: Array<{ fileName: string; error: string }> = [...expanded.failures];
+
+    if (!files.length) {
+      return NextResponse.json({ error: "Upload at least one supported resume file.", failures }, { status: 400 });
+    }
+
+    if (files.length > maxFiles) {
+      return NextResponse.json(
+        { error: `Upload ${maxFiles} resumes or fewer at a time, including files inside zips.` },
+        { status: 400 }
+      );
+    }
+
+    const candidates: CandidateAnalysis[] = [];
+    const uploadOutputs: {
+      candidate: CandidateAnalysis;
+      resumeText: string;
+      duplicateKey: string;
+      clusterKey: string;
+    }[] = [];
+    const duplicates: CandidateDuplicateWarning[] = [];
+    const seenDuplicateKeys = new Set<string>();
+    const seenClusterKeys = new Set<string>();
+
+    for (const file of files) {
       try {
-        candidate.aiInsight = await generateResumeAiInsight({
-          config: aiConfig,
-          maskedResumeText: candidate.structured.biasMaskedText,
-          topRoleTitles: candidate.topPositions.slice(0, 4).map((position) => position.role.title),
-          candidateLabel: candidate.candidateName,
+        if (file.size > maxFileSize) {
+          throw new Error("File exceeds 8 MB limit.");
+        }
+
+        if (!isAllowedResumeUpload(file.name, file.type)) {
+          throw new Error("Only PDF, DOCX, or TXT resumes are supported.");
+        }
+
+        const parsed = await extractResumeText(file);
+        if (parsed.text.length < 20) {
+          throw new Error("Resume text could not be extracted.");
+        }
+
+        const candidateName = inferCandidateName(file.name, parsed.text);
+        const { duplicateKey, clusterKey } = buildCandidateDuplicateIdentity({
+          candidateName,
+          fileName: file.name,
+          resumeText: parsed.text,
         });
-      } catch {
-        candidate.aiInsight = null;
+
+        if (seenDuplicateKeys.has(duplicateKey)) {
+          duplicates.push({
+            type: "exact_duplicate",
+            source: "upload_batch",
+            candidateName,
+            fileName: file.name,
+            duplicateKey,
+            clusterKey,
+            message: "Skipped duplicate resume upload in the same batch.",
+          });
+          continue;
+        }
+
+        if (seenClusterKeys.has(clusterKey)) {
+          duplicates.push({
+            type: "candidate_cluster",
+            source: "upload_batch",
+            candidateName,
+            fileName: file.name,
+            duplicateKey,
+            clusterKey,
+            message: "Candidate is clustered with another resume in the same upload batch.",
+          });
+        }
+
+        seenDuplicateKeys.add(duplicateKey);
+        seenClusterKeys.add(clusterKey);
+
+        const stored = await storeResumeFile({
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+          bytes: parsed.bytes,
+        });
+        const candidate = analyzeCandidateResume({
+          fileName: file.name,
+          resumeText: parsed.text,
+          storageUrl: stored.url,
+        });
+        candidates.push(candidate);
+        uploadOutputs.push({ candidate, resumeText: parsed.text, duplicateKey, clusterKey });
+      } catch (error) {
+        failures.push({
+          fileName: file.name,
+          error: error instanceof Error ? error.message : "Unknown parsing failure",
+        });
       }
     }
-  }
 
-  if (!candidates.length) {
-    return NextResponse.json({ candidates, duplicates, failures });
-  }
-
-  let persistError: string | undefined;
-  let responseCandidates = candidates;
-
-  try {
-    const saved = await saveCandidateBatch({ actor: user.email, uploads: uploadOutputs });
-    responseCandidates = saved.candidates;
-    duplicates.push(...saved.duplicates);
-
-    const savedCandidateIds = new Set(saved.candidates.map((candidate) => candidate.id));
-
-    for (const { candidate, resumeText } of uploadOutputs) {
-      if (!savedCandidateIds.has(candidate.id)) {
-        continue;
-      }
-
-      const best = candidate.topPositions[0];
-      if (best) {
-        await saveAnalysis({
-          employeeName: candidate.candidateName,
-          resumeText,
-          result: best,
-          recordAudit: false,
-        });
+    const aiConfig = getResumeAiInsightConfig();
+    if (aiConfig) {
+      for (const { candidate } of uploadOutputs) {
+        try {
+          candidate.aiInsight = await generateResumeAiInsight({
+            config: aiConfig,
+            maskedResumeText: candidate.structured.biasMaskedText,
+            topRoleTitles: candidate.topPositions.slice(0, 4).map((position) => position.role.title),
+            candidateLabel: candidate.candidateName,
+          });
+        } catch {
+          candidate.aiInsight = null;
+        }
       }
     }
-  } catch (error) {
-    persistError =
-      error instanceof Error ? error.message : "Failed to save resumes.";
-  }
 
-  const body: {
-    candidates: CandidateAnalysis[];
-    duplicates: CandidateDuplicateWarning[];
-    failures: typeof failures;
-    persistError?: string;
-  } = {
-    candidates: responseCandidates,
-    duplicates,
-    failures,
-  };
+    if (!candidates.length) {
+      return NextResponse.json({ candidates, duplicates, failures });
+    }
 
-  if (persistError) {
-    body.persistError = persistError;
-  }
+    let persistError: string | undefined;
+    let responseCandidates = candidates;
+
+    try {
+      const saved = await saveCandidateBatch({ actor: user.email, uploads: uploadOutputs });
+      responseCandidates = saved.candidates;
+      duplicates.push(...saved.duplicates);
+
+      const savedCandidateIds = new Set(saved.candidates.map((candidate) => candidate.id));
+
+      for (const { candidate, resumeText } of uploadOutputs) {
+        if (!savedCandidateIds.has(candidate.id)) {
+          continue;
+        }
+
+        const best = candidate.topPositions[0];
+        if (best) {
+          await saveAnalysis({
+            employeeName: candidate.candidateName,
+            resumeText,
+            result: best,
+            recordAudit: false,
+          });
+        }
+      }
+    } catch (error) {
+      persistError = error instanceof Error ? error.message : "Failed to save resumes.";
+    }
+
+    const body: {
+      candidates: CandidateAnalysis[];
+      duplicates: CandidateDuplicateWarning[];
+      failures: typeof failures;
+      persistError?: string;
+    } = {
+      candidates: responseCandidates,
+      duplicates,
+      failures,
+    };
+
+    if (persistError) {
+      body.persistError = persistError;
+    }
 
     return NextResponse.json(body);
   } catch (error) {

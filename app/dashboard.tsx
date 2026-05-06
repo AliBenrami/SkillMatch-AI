@@ -541,6 +541,12 @@ export default function Dashboard({
         }
       } else {
         const text = await response.text();
+        if (/__next_error__|DOCTYPE/i.test(text)) {
+          setNotice(
+            `Upload failed (${response.status}). The app returned an HTML error page instead of JSON — check server logs (storage, database, or migrations).`
+          );
+          return;
+        }
         const snippet = text.trim().slice(0, 200);
         setNotice(
           snippet
@@ -551,8 +557,12 @@ export default function Dashboard({
       }
 
       if (!response.ok) {
-        const errBody = payload as { error?: string };
-        setNotice(errBody.error ?? `Upload failed (${response.status}).`);
+        const errBody = payload as { error?: string; hint?: string };
+        const migrateHelp =
+          errBody.hint === "migrate"
+            ? " Run database migrations if you use Neon/Postgres."
+            : "";
+        setNotice((errBody.error ?? `Upload failed (${response.status}).`) + migrateHelp);
         return;
       }
 
