@@ -1,9 +1,26 @@
 import mammoth from "mammoth";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { PDFParse } from "pdf-parse";
 
-PDFParse.setWorker(pathToFileURL(path.join(process.cwd(), "node_modules/pdf-parse/dist/worker/pdf.worker.mjs")).href);
+type PdfParseModule = typeof import("pdf-parse");
+
+let pdfParseLoad: Promise<PdfParseModule> | null = null;
+
+async function getPdfParse(): Promise<PdfParseModule> {
+  if (!pdfParseLoad) {
+    pdfParseLoad = (async () => {
+      await import("./pdf-node-polyfill");
+      const mod = await import("pdf-parse");
+      mod.PDFParse.setWorker(
+        pathToFileURL(
+          path.join(process.cwd(), "node_modules/pdf-parse/dist/worker/pdf.worker.mjs"),
+        ).href,
+      );
+      return mod;
+    })();
+  }
+  return pdfParseLoad;
+}
 
 function cleanExtractedText(text: string) {
   return text
@@ -16,6 +33,7 @@ function cleanExtractedText(text: string) {
 }
 
 async function extractTextFromPdfBytes(bytes: Uint8Array) {
+  const { PDFParse } = await getPdfParse();
   const parser = new PDFParse({ data: Buffer.from(bytes) });
 
   try {
