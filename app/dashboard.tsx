@@ -383,36 +383,6 @@ export default function Dashboard({
       .slice(0, 8);
   }, [candidates]);
 
-  const dashboardStats = useMemo(() => {
-    const roleCounts = new Map<string, number>();
-    let scoreTotal = 0;
-    let scoreCount = 0;
-    let assignedModules = 0;
-
-    candidates.forEach((candidate) => {
-      const bestRole = candidate.topPositions[0];
-      if (bestRole) {
-        roleCounts.set(
-          bestRole.role.title,
-          (roleCounts.get(bestRole.role.title) ?? 0) + 1,
-        );
-        scoreTotal += bestRole.score;
-        scoreCount += 1;
-      }
-      assignedModules += candidate.assignedLearningModules?.length ?? 0;
-    });
-
-    return {
-      resumeCount: candidates.length,
-      averageMatch: scoreCount ? Math.round(scoreTotal / scoreCount) : 0,
-      assignedModules,
-      activeRoleFamilies: roles.length,
-      roleDistribution: Array.from(roleCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4),
-    };
-  }, [candidates]);
-
   const workforceGapMeterMax = Math.max(files.length, candidates.length, 5);
 
   const skillGapChartItems = useMemo<SkillGapChartItem[]>(() => {
@@ -1281,8 +1251,6 @@ export default function Dashboard({
                       <ReadinessSignals result={selectedResult} />
                       <GapList gaps={missingSkills.slice(0, 8)} />
                     </div>
-                    <DashboardStatsPanel stats={dashboardStats} />
-                    <DashboardGapPanel gaps={workforceGaps} />
                     <RoleSkillGapChart
                       candidateName={selectedCandidate?.candidateName}
                       items={skillGapChartItems}
@@ -2184,104 +2152,6 @@ function ReadinessSignals({
         </li>
       </ul>
     </div>
-  );
-}
-
-function DashboardStatsPanel({
-  stats,
-}: {
-  stats: {
-    resumeCount: number;
-    averageMatch: number;
-    assignedModules: number;
-    activeRoleFamilies: number;
-    roleDistribution: Array<[string, number]>;
-  };
-}) {
-  const maxRoleCount = Math.max(
-    ...stats.roleDistribution.map(([, count]) => count),
-    1,
-  );
-
-  return (
-    <section
-      className="dashboard-stats-panel"
-      aria-label="Dashboard statistics"
-    >
-      <div className="dashboard-stat-card">
-        <span>Resumes analyzed</span>
-        <strong>{stats.resumeCount}</strong>
-      </div>
-      <div className="dashboard-stat-card">
-        <span>Average top match</span>
-        <strong>{stats.resumeCount ? `${stats.averageMatch}%` : "—"}</strong>
-      </div>
-      <div className="dashboard-stat-card">
-        <span>Assigned modules</span>
-        <strong>{stats.assignedModules}</strong>
-      </div>
-      <div className="dashboard-stat-card">
-        <span>Role families</span>
-        <strong>{stats.activeRoleFamilies}</strong>
-      </div>
-      <div className="role-distribution-card">
-        <span>Recommended role mix</span>
-        {stats.roleDistribution.length ? (
-          <ul>
-            {stats.roleDistribution.map(([roleTitle, count]) => (
-              <li key={roleTitle}>
-                <small>{roleTitle}</small>
-                <div aria-hidden="true">
-                  <i
-                    style={{
-                      width: `${Math.max(8, (count / maxRoleCount) * 100)}%`,
-                    }}
-                  />
-                </div>
-                <b>{count}</b>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No analyzed resumes yet.</p>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function DashboardGapPanel({ gaps }: { gaps: Array<[string, number]> }) {
-  const maxGapCount = Math.max(...gaps.map(([, count]) => count), 1);
-
-  return (
-    <section
-      className="dashboard-gap-panel"
-      aria-labelledby="dashboard-gap-title"
-    >
-      <div className="panel-heading">
-        <h3 id="dashboard-gap-title">Top Workforce Gaps</h3>
-        <span>{gaps.length ? "Across resumes" : "No gap data"}</span>
-      </div>
-      {gaps.length ? (
-        <ul className="dashboard-gap-list">
-          {gaps.slice(0, 5).map(([skill, count]) => (
-            <li key={skill}>
-              <span className="dashboard-gap-skill">{skill}</span>
-              <span className="dashboard-gap-meter" aria-hidden="true">
-                <span
-                  style={{
-                    width: `${Math.max(8, (count / maxGapCount) * 100)}%`,
-                  }}
-                />
-              </span>
-              <strong>{count}</strong>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="chart-caption">No analyzed resumes yet.</p>
-      )}
-    </section>
   );
 }
 
