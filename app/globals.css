@@ -38,17 +38,12 @@
   /* Elevation — slightly cooler tint for enterprise feel */
   --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
   --shadow-sm:
-    0 1px 3px rgba(15, 23, 42, 0.06),
-    0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow:
-    0 4px 16px rgba(15, 23, 42, 0.07),
-    0 2px 4px rgba(15, 23, 42, 0.04);
+    0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow: 0 4px 16px rgba(15, 23, 42, 0.07), 0 2px 4px rgba(15, 23, 42, 0.04);
   --shadow-md:
-    0 10px 28px rgba(15, 23, 42, 0.08),
-    0 3px 8px rgba(15, 23, 42, 0.05);
+    0 10px 28px rgba(15, 23, 42, 0.08), 0 3px 8px rgba(15, 23, 42, 0.05);
   --shadow-lg:
-    0 22px 52px rgba(15, 23, 42, 0.1),
-    0 8px 16px rgba(15, 23, 42, 0.06);
+    0 22px 52px rgba(15, 23, 42, 0.1), 0 8px 16px rgba(15, 23, 42, 0.06);
 
   /* Radii */
   --radius-sm: 8px;
@@ -62,7 +57,8 @@
   /* Motion (skill: 150–300ms) */
   --t: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   --focus-ring: 0 0 0 2px var(--panel), 0 0 0 4px rgba(2, 132, 199, 0.35);
-  --focus-ring-amber: 0 0 0 2px var(--panel), 0 0 0 4px rgba(245, 158, 11, 0.45);
+  --focus-ring-amber:
+    0 0 0 2px var(--panel), 0 0 0 4px rgba(245, 158, 11, 0.45);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -93,9 +89,17 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family:
-    var(--font-inter, Inter), ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-feature-settings: "kern" 1, "liga" 1, "cv11" 1;
+    var(--font-inter, Inter),
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-feature-settings:
+    "kern" 1,
+    "liga" 1,
+    "cv11" 1;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -185,7 +189,9 @@ button:focus-visible,
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 600;
-  transition: background var(--t), color var(--t);
+  transition:
+    background var(--t),
+    color var(--t);
 }
 
 .top-nav-item svg {
@@ -301,7 +307,10 @@ button:focus-visible,
   font-size: 13px;
   font-weight: 600;
   text-align: left;
-  transition: background var(--t), color var(--t), box-shadow var(--t);
+  transition:
+    background var(--t),
+    color var(--t),
+    box-shadow var(--t);
   box-shadow: inset 3px 0 0 transparent;
 }
 
@@ -421,7 +430,9 @@ input {
   color: var(--ink);
   padding: 0 12px;
   font-weight: 500;
-  transition: border-color var(--t), box-shadow var(--t);
+  transition:
+    border-color var(--t),
+    box-shadow var(--t);
 }
 
 select:hover,
@@ -485,7 +496,10 @@ input:focus-visible {
   padding: 0 14px;
   font-size: 12.5px;
   font-weight: 600;
-  transition: background var(--t), border-color var(--t), color var(--t);
+  transition:
+    background var(--t),
+    border-color var(--t),
+    color var(--t);
 }
 
 .icon-text-button:hover {
@@ -509,6 +523,38 @@ input:focus-visible {
     minmax(280px, min(100%, 380px));
   gap: clamp(16px, 1.25vw, 28px);
   align-items: start;
+}
+
+.dashboard-workbench {
+  grid-template-columns: minmax(260px, 300px) minmax(520px, 1fr) minmax(
+      260px,
+      310px
+    );
+  gap: 16px;
+}
+
+.dashboard-left-rail,
+.dashboard-right-rail {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.dashboard-left-rail {
+  align-self: start;
+}
+
+.dashboard-right-rail {
+  align-self: start;
+  max-height: none;
+  overflow: visible;
+  padding-right: 2px;
+}
+
+.dashboard-main-panel {
+  min-width: 0;
 }
 
 .concept-panel,
@@ -555,6 +601,7 @@ input:focus-visible {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+  padding: 1rem;
 }
 
 .panel-heading span {
@@ -574,6 +621,22 @@ input:focus-visible {
   height: 16px;
   color: var(--brand-dark);
   flex-shrink: 0;
+}
+
+.rail-recommendation-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.rail-recommendation-panel .panel-heading {
+  margin-bottom: 0;
+}
+
+.rail-recommendation-panel .recommendation-list li {
+  min-height: 42px;
 }
 
 .ai-insight-body {
@@ -629,7 +692,9 @@ input:focus-visible {
   background: var(--panel-soft);
   color: var(--muted);
   text-align: center;
-  transition: border-color var(--t), background var(--t);
+  transition:
+    border-color var(--t),
+    background var(--t);
 }
 
 .drop-zone:hover {
@@ -709,7 +774,10 @@ input:focus-visible {
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--muted);
-  transition: background var(--t), border-color var(--t), color var(--t);
+  transition:
+    background var(--t),
+    border-color var(--t),
+    color var(--t);
 }
 
 .queue-clear-button:hover,
@@ -814,7 +882,10 @@ input:focus-visible {
   font-size: 13.5px;
   font-weight: 700;
   letter-spacing: -0.1px;
-  transition: background var(--t), box-shadow var(--t), transform var(--t);
+  transition:
+    background var(--t),
+    box-shadow var(--t),
+    transform var(--t);
 }
 
 .run-button:hover:not(:disabled),
@@ -858,7 +929,7 @@ input:focus-visible {
 /* ─── Skill match overview ───────────────────────────────────── */
 
 .overview-panel {
-  min-height: min(560px, 70vh);
+  min-height: 0;
 }
 
 .overview-content {
@@ -868,11 +939,9 @@ input:focus-visible {
 
 .overview-summary {
   display: grid;
-  grid-template-columns: minmax(168px, 0.38fr) minmax(0, 1fr) minmax(0, 1fr);
-  gap: clamp(16px, 2vw, 32px);
-  align-items: start;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border);
+  grid-template-columns: minmax(126px, 0.72fr) repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
 }
 
 .score-column {
@@ -880,9 +949,20 @@ input:focus-visible {
   place-items: center;
   align-content: start;
   gap: 8px;
-  padding: 4px 14px 0 4px;
-  border-right: 1px solid var(--border);
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  padding: 14px 10px;
   text-align: center;
+}
+
+.overview-summary > div:not(.score-column) {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  padding: 14px;
 }
 
 .score-column > span {
@@ -1006,6 +1086,164 @@ input:focus-visible {
   font-size: 12.5px;
   line-height: 1.5;
   text-align: center;
+}
+
+.dashboard-stats-panel {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.role-distribution-card {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.dashboard-stat-card,
+.role-distribution-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  padding: 13px 14px;
+}
+
+.dashboard-stat-card {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-height: 96px;
+}
+
+.dashboard-stat-card span,
+.role-distribution-card > span {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.dashboard-stat-card strong {
+  color: var(--ink);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+
+.role-distribution-card ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.role-distribution-card li {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(80px, 1fr) 22px;
+  gap: 8px;
+  align-items: center;
+}
+
+.role-distribution-card small {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-distribution-card div {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.role-distribution-card i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand);
+}
+
+.role-distribution-card b {
+  color: var(--muted);
+  font-size: 11.5px;
+  text-align: right;
+}
+
+.role-distribution-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.dashboard-gap-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #fafafa 0%, var(--panel-soft) 100%);
+  padding: 16px;
+}
+
+.dashboard-gap-panel .panel-heading {
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.dashboard-gap-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dashboard-gap-list li {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.8fr) minmax(90px, 1fr) 24px;
+  gap: 8px;
+  align-items: center;
+  min-height: 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-gap-list li:last-child {
+  border-bottom: 0;
+}
+
+.dashboard-gap-skill {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-gap-meter {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.dashboard-gap-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #f97316;
+}
+
+.dashboard-gap-list strong {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: right;
 }
 
 /* ─── Skill gap chart ────────────────────────────────────────── */
@@ -1331,7 +1569,12 @@ input:focus-visible {
 }
 
 .recent-list .recent-list-item .candidate-resume-links {
+  display: inline-flex;
   padding-left: 27px;
+}
+
+.recent-list .recent-list-item .candidate-resume-links-sep {
+  display: inline;
 }
 
 /* ─── Bottom grid ────────────────────────────────────────────── */
@@ -1473,6 +1716,26 @@ meter::-moz-meter-bar {
   gap: 12px;
 }
 
+.learning-toolbar {
+  align-items: flex-start;
+}
+
+.learning-toolbar h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+
+.learning-toolbar p {
+  max-width: 720px;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .filter-toolbar {
   display: grid;
   grid-template-columns: 1.4fr repeat(3, minmax(140px, 1fr));
@@ -1490,6 +1753,134 @@ meter::-moz-meter-bar {
   text-transform: uppercase;
 }
 
+.chip-filter-label {
+  min-width: 0;
+}
+
+.chip-filter-control {
+  position: relative;
+}
+
+.chip-filter-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 5px 7px;
+  transition:
+    border-color var(--t),
+    box-shadow var(--t);
+}
+
+.chip-filter-control:focus-within .chip-filter-input-row {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
+.chip-filter-input-row input {
+  flex: 1 1 130px;
+  min-width: 90px;
+  min-height: 26px;
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  box-shadow: none !important;
+}
+
+.chip-filter-input-row input:focus-visible {
+  outline: 0;
+  box-shadow: none !important;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-full);
+  background: var(--blue-bg);
+  color: var(--blue);
+  padding: 0 7px 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.filter-chip button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: currentColor;
+  padding: 0;
+}
+
+.filter-chip button:hover {
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.filter-chip svg {
+  width: 12px;
+  height: 12px;
+}
+
+.chip-filter-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 6px;
+}
+
+.chip-filter-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  padding: 0 9px;
+  text-align: left;
+}
+
+.chip-filter-menu button:hover {
+  background: var(--panel-soft);
+}
+
+.chip-filter-menu span {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.chip-filter-menu small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .search-box {
   display: grid;
   grid-template-columns: 17px minmax(200px, 400px);
@@ -1501,7 +1892,9 @@ meter::-moz-meter-bar {
   background: var(--panel);
   padding: 0 14px;
   color: var(--muted);
-  transition: border-color var(--t), box-shadow var(--t);
+  transition:
+    border-color var(--t),
+    box-shadow var(--t);
 }
 
 .search-box:focus-within {
@@ -1548,7 +1941,9 @@ meter::-moz-meter-bar {
   border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow-sm);
-  transition: box-shadow var(--t), transform var(--t);
+  transition:
+    box-shadow var(--t),
+    transform var(--t);
 }
 
 .candidate-card:hover,
@@ -1633,6 +2028,117 @@ meter::-moz-meter-bar {
 
 .learning-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.learning-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.learning-roster-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  height: 100%;
+}
+
+.learning-roster-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.learning-roster-list button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 24px;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  min-height: 64px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 9px 10px;
+  text-align: left;
+  transition:
+    background var(--t),
+    border-color var(--t),
+    box-shadow var(--t);
+}
+
+.learning-roster-list button:hover,
+.learning-roster-list button.is-selected {
+  border-color: var(--brand);
+  background: var(--brand-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.learning-roster-list svg {
+  width: 20px;
+  height: 20px;
+  color: var(--blue);
+}
+
+.learning-roster-list span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.learning-roster-list strong,
+.learning-assignment-summary strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learning-roster-list small,
+.learning-roster-list em,
+.learning-assignment-summary span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.25px;
+  font-style: normal;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learning-roster-list b {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--blue-bg);
+  color: var(--blue);
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.learning-assignment-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.55fr);
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+}
+
+.learning-assignment-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .learning-item {
@@ -1723,31 +2229,91 @@ meter::-moz-meter-bar {
 
 .settings-grid {
   display: grid;
-  grid-template-columns: 0.8fr 1.2fr;
-  gap: 32px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
 }
 
-.settings-grid h2 {
-  margin: 0 0 8px;
-  font-size: 15px;
+.settings-section {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.settings-wide-section {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+.settings-section label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: -0.2px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 }
 
-.settings-grid p {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.settings-grid strong {
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.settings-grid span {
-  font-size: 12.5px;
+.settings-section .panel-heading span {
   text-transform: capitalize;
+}
+
+.settings-toggle {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  padding: 13px 14px;
+  text-transform: none !important;
+}
+
+.settings-toggle input {
+  width: 16px;
+  min-height: 16px;
+  margin-top: 2px;
+  accent-color: var(--brand);
+}
+
+.settings-toggle span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-toggle strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-toggle small,
+.settings-actions p {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.45;
+  text-transform: none;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-actions p {
+  margin: 0;
+}
+
+.settings-actions .primary-action {
+  width: auto;
+  min-width: 150px;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .empty-panel {
@@ -1838,6 +2404,8 @@ meter::-moz-meter-bar {
   .concept-grid,
   .bottom-grid,
   .data-grid,
+  .dashboard-stats-panel,
+  .learning-layout,
   .learning-grid,
   .metric-grid,
   .role-matrix,
@@ -1847,6 +2415,25 @@ meter::-moz-meter-bar {
 
   .overview-panel {
     min-height: auto;
+  }
+
+  .dashboard-left-rail,
+  .dashboard-right-rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .dashboard-left-rail {
+    order: 1;
+  }
+
+  .dashboard-right-rail {
+    order: 2;
+  }
+
+  .dashboard-main-panel {
+    order: 3;
   }
 
   .side-nav {
@@ -1907,8 +2494,10 @@ meter::-moz-meter-bar {
   .brand-block,
   .overview-content,
   .overview-summary,
+  .dashboard-stats-panel,
   .audit-log-row,
   .filter-toolbar,
+  .learning-assignment-summary,
   .saved-progress-grid article,
   .system-health,
   .screen-toolbar,
@@ -1943,5 +2532,13 @@ meter::-moz-meter-bar {
 
   .data-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-actions {
+    display: grid;
+  }
+
+  .settings-actions .primary-action {
+    width: 100%;
   }
 }
