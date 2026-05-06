@@ -20,7 +20,6 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Target,
   Trash2,
   UploadCloud,
@@ -1306,7 +1305,6 @@ export default function Dashboard({
                       selectView("learning");
                     }}
                   />
-                  <AiInsightPanel insight={selectedCandidate?.aiInsight ?? null} />
                   <RecentCandidates
                     candidates={candidates}
                     onSelect={setSelectedCandidateId}
@@ -2708,67 +2706,6 @@ function SavedRoleProgress({
           role for progress.
         </p>
       ) : null}
-    </section>
-  );
-}
-
-function AiInsightPanel({
-  insight,
-}: {
-  insight: CandidateAnalysis["aiInsight"];
-}) {
-  return (
-    <section className="concept-panel ai-insight-panel">
-      <div className="panel-heading">
-        <h2>
-          <Sparkles aria-hidden="true" className="inline-icon" />
-          AI resume review
-        </h2>
-        <span>Advisory</span>
-      </div>
-      {insight ? (
-        <div className="ai-insight-body">
-          <p className="ai-insight-summary">{insight.summary}</p>
-          <div className="ai-insight-columns">
-            <div>
-              <h3>Strengths</h3>
-              <ul>
-                {insight.strengths.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h3>Development areas</h3>
-              <ul>
-                {insight.developmentAreas.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <div>
-            <h3>Role fit</h3>
-            <p>{insight.roleFitNotes}</p>
-          </div>
-          {insight.followUpQuestions.length ? (
-            <div>
-              <h3>Follow-up questions</h3>
-              <ul className="follow-up-list">
-                {insight.followUpQuestions.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <p className="list-placeholder">
-          When optional AI resume review is enabled for your workspace, a
-          structured narrative appears after each upload. Skill matching above
-          still runs without it.
-        </p>
-      )}
     </section>
   );
 }

@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import { bigserial, check, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import type { ResumeAiInsight } from "@/lib/resume-ai-insight";
 import type { UserRole } from "@/lib/validation";
 
 export const userRole = pgEnum("user_role", [
@@ -67,7 +66,8 @@ export const candidateRecommendations = pgTable(
     storageUrl: text("storage_url").notNull(),
     structuredResume: jsonb("structured_resume").notNull(),
     topPositions: jsonb("top_positions").notNull(),
-    aiInsight: jsonb("ai_insight").$type<ResumeAiInsight | null>(),
+    /** Legacy column; AI resume review removed — always null for new rows. */
+    aiInsight: jsonb("ai_insight").$type<Record<string, unknown> | null>(),
     assignedLearningModules: jsonb("assigned_learning_modules").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     bestRoleTitle: text("best_role_title").notNull(),
     bestScore: integer("best_score").notNull(),

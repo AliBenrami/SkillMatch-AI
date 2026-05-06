@@ -458,7 +458,7 @@ export async function saveCandidateBatch(input: {
       storageUrl: upload.candidate.storageUrl,
       structuredResume: upload.candidate.structured,
       topPositions: upload.candidate.topPositions,
-      aiInsight: upload.candidate.aiInsight,
+      aiInsight: null,
       assignedLearningModules: upload.candidate.assignedLearningModules,
       bestRoleTitle: best?.role.title ?? "No match",
       bestScore
@@ -492,7 +492,6 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
       storageUrl: candidateRecommendations.storageUrl,
       structured: candidateRecommendations.structuredResume,
       topPositions: candidateRecommendations.topPositions,
-      aiInsight: candidateRecommendations.aiInsight,
       assignedLearningModules: candidateRecommendations.assignedLearningModules,
       createdAt: candidateRecommendations.createdAt
     })
@@ -507,7 +506,6 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
     storageUrl: row.storageUrl,
     structured: row.structured as CandidateAnalysis["structured"],
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
-    aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
     assignedLearningModules: row.assignedLearningModules as string[],
     createdAt: row.createdAt.toISOString()
   } as CandidateAnalysis));
@@ -550,7 +548,6 @@ export async function assignCandidateLearningModules(input: {
       storageUrl: candidateRecommendations.storageUrl,
       structured: candidateRecommendations.structuredResume,
       topPositions: candidateRecommendations.topPositions,
-      aiInsight: candidateRecommendations.aiInsight,
       assignedLearningModules: candidateRecommendations.assignedLearningModules,
       createdAt: candidateRecommendations.createdAt
     })
@@ -582,7 +579,6 @@ export async function assignCandidateLearningModules(input: {
     storageUrl: row.storageUrl,
     structured: row.structured as CandidateAnalysis["structured"],
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
-    aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
     assignedLearningModules,
     createdAt: row.createdAt.toISOString()
   } as CandidateAnalysis);

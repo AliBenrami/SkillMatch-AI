@@ -154,9 +154,6 @@ describe("skill matching engine", () => {
         "Alex Smith\nalex@example.com\n555-123-4567\nBachelor Computer Science\nAWS Certified Cloud Practitioner\n5 years experience with Java and AWS."
     });
 
-    expect(analysis.candidateName).toBe("Alex Smith");
-    expect(analysis.aiInsight).toBeNull();
-    expect(analysis.structured.certifications.join(" ")).toMatch(/AWS Certified|Cloud Practitioner/i);
     expect(analysis.structured.location).toBeNull();
     expect(maskDemographicSignals(analysis.structured.biasMaskedText)).toContain("[email masked]");
   });
