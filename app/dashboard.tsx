@@ -1042,12 +1042,29 @@ export default function Dashboard({
                   text="Refreshing saved candidate recommendations and filters."
                 />
               ) : null}
-              {candidateStatus === "error" ? (
+              {candidateStatus === "error" && candidates.length === 0 ? (
                 <ErrorPanel
                   title="Could not load candidates"
-                  text="The candidate list did not refresh. Existing cards stay visible if they were already loaded."
+                  text="The candidate list did not refresh. Try again in a moment."
                   onRetry={() => void refreshRecords()}
                 />
+              ) : null}
+              {candidateStatus === "error" && candidates.length > 0 ? (
+                <div
+                  className="error-message col-span-full m-0 mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px]"
+                  role="alert"
+                >
+                  <span>Could not refresh candidates. Showing the last loaded analyses.</span>
+                  <button
+                    className="icon-text-button"
+                    type="button"
+                    disabled={isRefreshing}
+                    onClick={() => void refreshRecords()}
+                  >
+                    <RefreshCw aria-hidden="true" />
+                    {isRefreshing ? "Refreshing..." : "Retry candidates"}
+                  </button>
+                </div>
               ) : null}
               {candidateStatus === "forbidden" ? (
                 <EmptyPanel
@@ -2133,17 +2150,17 @@ function AuditTable({
     );
   }
 
-  if (status === "error") {
+  if (status === "error" && events.length === 0) {
     return (
       <ErrorPanel
         title="Could not load audit log"
-        text="The audit log refresh failed. Existing events stay visible if they were already loaded."
+        text="The audit log did not refresh. Try again in a moment."
         onRetry={onRetry}
       />
     );
   }
 
-  if (!events.length) {
+  if (status === "ready" && events.length === 0) {
     return (
       <EmptyPanel
         title="No audit events yet"
@@ -2151,22 +2168,37 @@ function AuditTable({
       />
     );
   }
+
   return (
-    <div className="audit-log-table" aria-busy={isRefreshing}>
-      <div className="audit-log-row head">
-        <span>Date & Time</span>
-        <span>Action</span>
-        <span>Actor</span>
-        <span>Status</span>
-      </div>
-      {events.map((event) => (
-        <div className="audit-log-row" key={event.id}>
-          <span>{new Date(event.createdAt).toLocaleString()}</span>
-          <span>{event.action.replaceAll("_", " ")}</span>
-          <span>{event.actor}</span>
-          <span className="status-chip">Recorded</span>
+    <>
+      {status === "error" ? (
+        <div
+          className="error-message m-0 mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px]"
+          role="alert"
+        >
+          <span>Could not refresh the audit log. Showing the last loaded events.</span>
+          <button className="icon-text-button" type="button" disabled={isRefreshing} onClick={onRetry}>
+            <RefreshCw aria-hidden="true" />
+            {isRefreshing ? "Refreshing..." : "Retry audit log"}
+          </button>
         </div>
-      ))}
-    </div>
+      ) : null}
+      <div className="audit-log-table" aria-busy={isRefreshing}>
+        <div className="audit-log-row head">
+          <span>Date & Time</span>
+          <span>Action</span>
+          <span>Actor</span>
+          <span>Status</span>
+        </div>
+        {events.map((event) => (
+          <div className="audit-log-row" key={event.id}>
+            <span>{new Date(event.createdAt).toLocaleString()}</span>
+            <span>{event.action.replaceAll("_", " ")}</span>
+            <span>{event.actor}</span>
+            <span className="status-chip">Recorded</span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
