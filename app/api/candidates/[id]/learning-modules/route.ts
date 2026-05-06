@@ -21,6 +21,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   try {
     const candidate = await assignCandidateLearningModules({
       actor: user.email,
+      actorRole: user.role,
+      actorName: user.name,
       candidateId: id,
       moduleIds: body.moduleIds
     });

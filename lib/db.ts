@@ -1,7 +1,14 @@
-import { and, desc, eq } from "drizzle-orm";
-import { analyses, auditEvents, candidateRecommendations, savedTargetRoles } from "@/db/schema";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { adminAlerts, analyses, auditEvents, candidateRecommendations, savedTargetRoles } from "@/db/schema";
+import {
+  GENESIS_PREVIOUS_HASH,
+  computeAuditEventHash,
+  verifyAuditChain,
+  type AuditChainEvent,
+} from "./audit-integrity";
 import { getDatabase } from "./database";
 import { matchingConfig } from "./seed-data";
+import { deleteResumeObject } from "./storage";
 import type { CandidateAnalysis, CandidatePositionRecommendation, SkillMatchResult } from "./skillmatch";
 
 export type AnalysisRecord = {
@@ -82,6 +89,7 @@ const memoryCandidates: CandidateAnalysis[] = [];
 const memoryCandidateUploads: CandidateUploadRecord[] = [];
 const memoryAuditEvents: AuditEvent[] = [];
 const memorySavedTargetRoles: SavedTargetRole[] = [];
+const memoryAdminAlerts: AdminAlert[] = [];
 
 /** Clears in-memory persistence when no DATABASE_URL backend is active (Playwright uses this between tests). */
 export function resetMemoryStoresForE2e(): boolean {
@@ -93,6 +101,7 @@ export function resetMemoryStoresForE2e(): boolean {
   memoryCandidateUploads.length = 0;
   memoryAuditEvents.length = 0;
   memorySavedTargetRoles.length = 0;
+  memoryAdminAlerts.length = 0;
   return true;
 }
 
@@ -176,10 +185,38 @@ export function filterCandidateRecommendations(
 export type AuditEvent = {
   id: string;
   actor: string;
+  actorRole?: string | null;
+  actorName?: string | null;
   action: string;
   entityId?: string;
   details: Record<string, unknown>;
+  previousHash: string;
+  hash: string;
   createdAt: string;
+};
+
+export type AuditEventFilters = {
+  action?: string;
+  actor?: string;
+  entityId?: string;
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+};
+
+export type AdminAlertSeverity = "info" | "warning" | "critical";
+export type AdminAlertStatus = "open" | "resolved";
+
+export type AdminAlert = {
+  id: string;
+  source: string;
+  severity: AdminAlertSeverity;
+  status: AdminAlertStatus;
+  message: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
 };
 
 export type SavedTargetRole = {
@@ -214,6 +251,8 @@ export async function saveAnalysis(input: {
   result: SkillMatchResult;
   recordAudit?: boolean;
   auditActor?: string;
+  auditActorRole?: string | null;
+  auditActorName?: string | null;
 }) {
   const recordAudit = input.recordAudit !== false;
   const auditActor = input.auditActor ?? input.employeeName;
@@ -246,30 +285,66 @@ export async function saveAnalysis(input: {
   });
 
   if (recordAudit) {
-    await db.insert(auditEvents).values({
+    await appendAuditEvent({
       actor: auditActor,
+      actorRole: input.auditActorRole ?? null,
+      actorName: input.auditActorName ?? null,
       action: "recommendation_generation",
       entityId: record.id,
-      details: { targetRole: input.result.role.title, score: input.result.score }
+      details: { targetRole: input.result.role.title, score: input.result.score },
     });
   }
 
   return record;
 }
 
+async function getMostRecentAuditHash(): Promise<string> {
+  const db = getDatabase();
+  if (!db) {
+    return memoryAuditEvents[0]?.hash ?? GENESIS_PREVIOUS_HASH;
+  }
+
+  const rows = await db
+    .select({ hash: auditEvents.hash })
+    .from(auditEvents)
+    .orderBy(desc(auditEvents.createdAt), desc(auditEvents.id))
+    .limit(1);
+
+  return rows[0]?.hash ?? GENESIS_PREVIOUS_HASH;
+}
+
 export async function appendAuditEvent(input: {
   actor: string;
+  actorRole?: string | null;
+  actorName?: string | null;
   action: string;
   entityId?: string;
   details: Record<string, unknown>;
 }) {
+  const createdAt = new Date().toISOString();
+  const previousHash = await getMostRecentAuditHash();
+  const hash = computeAuditEventHash({
+    previousHash,
+    actor: input.actor,
+    actorRole: input.actorRole ?? null,
+    actorName: input.actorName ?? null,
+    action: input.action,
+    entityId: input.entityId ?? null,
+    details: input.details,
+    createdAt,
+  });
+
   const event: AuditEvent = {
     id: crypto.randomUUID(),
     actor: input.actor,
+    actorRole: input.actorRole ?? null,
+    actorName: input.actorName ?? null,
     action: input.action,
     entityId: input.entityId,
     details: input.details,
-    createdAt: new Date().toISOString()
+    previousHash,
+    hash,
+    createdAt,
   };
   const db = getDatabase();
 
@@ -280,9 +355,13 @@ export async function appendAuditEvent(input: {
 
   await db.insert(auditEvents).values({
     actor: input.actor,
+    actorRole: input.actorRole ?? null,
+    actorName: input.actorName ?? null,
     action: input.action,
     entityId: input.entityId ?? null,
-    details: input.details
+    details: input.details,
+    previousHash,
+    hash,
   });
 
   return event;
@@ -290,6 +369,8 @@ export async function appendAuditEvent(input: {
 
 export async function saveCandidateBatch(input: {
   actor: string;
+  actorRole?: string | null;
+  actorName?: string | null;
   uploads: CandidateUploadRecord[];
 }) {
   const db = getDatabase();
@@ -356,6 +437,8 @@ export async function saveCandidateBatch(input: {
     memoryCandidates.unshift(...savedUploads.map((upload) => upload.candidate));
     await appendAuditEvent({
       actor: input.actor,
+      actorRole: input.actorRole ?? null,
+      actorName: input.actorName ?? null,
       action: "recommendation_generation",
       details: { count: savedUploads.length, duplicates: duplicates.length, mode: "local_memory" }
     });
@@ -464,6 +547,8 @@ export async function saveCandidateBatch(input: {
 
   await appendAuditEvent({
     actor: input.actor,
+    actorRole: input.actorRole ?? null,
+    actorName: input.actorName ?? null,
     action: "recommendation_generation",
     details: { count: savedUploads.length, duplicates: duplicates.length, mode: "database" }
   });
@@ -514,6 +599,8 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
 
 export async function assignCandidateLearningModules(input: {
   actor: string;
+  actorRole?: string | null;
+  actorName?: string | null;
   candidateId: string;
   moduleIds: string[];
 }) {
@@ -532,6 +619,8 @@ export async function assignCandidateLearningModules(input: {
     }
     await appendAuditEvent({
       actor: input.actor,
+      actorRole: input.actorRole ?? null,
+      actorName: input.actorName ?? null,
       action: "learning_modules_assigned",
       entityId: input.candidateId,
       details: { moduleIds: assignedLearningModules, mode: "local_memory" }
@@ -566,6 +655,8 @@ export async function assignCandidateLearningModules(input: {
 
   await appendAuditEvent({
     actor: input.actor,
+    actorRole: input.actorRole ?? null,
+    actorName: input.actorName ?? null,
     action: "learning_modules_assigned",
     entityId: input.candidateId,
     details: { moduleIds: assignedLearningModules, mode: "database" }
@@ -614,34 +705,243 @@ export async function getCandidateResumeById(candidateId: string) {
   };
 }
 
-export async function listAuditEvents() {
+export async function deleteCandidateRecommendation(input: {
+  actor: string;
+  actorRole?: string | null;
+  actorName?: string | null;
+  candidateId: string;
+}) {
   const db = getDatabase();
 
   if (!db) {
-    return memoryAuditEvents.slice(0, 20);
+    const index = memoryCandidates.findIndex((item) => item.id === input.candidateId);
+    if (index === -1) {
+      return null;
+    }
+
+    const [candidate] = memoryCandidates.splice(index, 1);
+    const uploadIndex = memoryCandidateUploads.findIndex((item) => item.candidate.id === input.candidateId);
+    if (uploadIndex >= 0) {
+      memoryCandidateUploads.splice(uploadIndex, 1);
+    }
+
+    const objectDeletion = await deleteResumeObject(candidate.storageUrl);
+    await appendAuditEvent({
+      actor: input.actor,
+      actorRole: input.actorRole ?? null,
+      actorName: input.actorName ?? null,
+      action: "candidate_resume_deleted",
+      entityId: candidate.id,
+      details: {
+        candidateName: candidate.candidateName,
+        fileName: candidate.fileName,
+        storageUrl: candidate.storageUrl,
+        resumeObjectDeleted: objectDeletion.deleted,
+        resumeObjectDeletionSupported: objectDeletion.supported,
+        resumeObjectDeletionError: objectDeletion.error,
+        mode: "local_memory",
+      },
+    });
+
+    return {
+      candidateId: candidate.id,
+      candidateName: candidate.candidateName,
+      fileName: candidate.fileName,
+      storageUrl: candidate.storageUrl,
+      resumeObjectDeleted: objectDeletion.deleted,
+      resumeObjectDeletionSupported: objectDeletion.supported,
+      resumeObjectDeletionError: objectDeletion.error,
+      mode: "local_memory" as const,
+    };
   }
 
   const rows = await db
     .select({
+      id: candidateRecommendations.id,
+      candidateName: candidateRecommendations.candidateName,
+      fileName: candidateRecommendations.fileName,
+      storageUrl: candidateRecommendations.storageUrl,
+    })
+    .from(candidateRecommendations)
+    .where(eq(candidateRecommendations.id, input.candidateId))
+    .limit(1);
+
+  if (!rows.length) {
+    return null;
+  }
+
+  const candidate = rows[0];
+  await db.delete(candidateRecommendations).where(eq(candidateRecommendations.id, input.candidateId));
+
+  const objectDeletion = await deleteResumeObject(candidate.storageUrl);
+  await appendAuditEvent({
+    actor: input.actor,
+    actorRole: input.actorRole ?? null,
+    actorName: input.actorName ?? null,
+    action: "candidate_resume_deleted",
+    entityId: candidate.id,
+    details: {
+      candidateName: candidate.candidateName,
+      fileName: candidate.fileName,
+      storageUrl: candidate.storageUrl,
+      resumeObjectDeleted: objectDeletion.deleted,
+      resumeObjectDeletionSupported: objectDeletion.supported,
+      resumeObjectDeletionError: objectDeletion.error,
+      mode: "database",
+    },
+  });
+
+  return {
+    candidateId: candidate.id,
+    candidateName: candidate.candidateName,
+    fileName: candidate.fileName,
+    storageUrl: candidate.storageUrl,
+    resumeObjectDeleted: objectDeletion.deleted,
+    resumeObjectDeletionSupported: objectDeletion.supported,
+    resumeObjectDeletionError: objectDeletion.error,
+    mode: "database" as const,
+  };
+}
+
+function applyAuditFiltersInMemory(events: AuditEvent[], filters: AuditEventFilters) {
+  return events.filter((event) => {
+    if (filters.action && filters.action.trim() && event.action !== filters.action.trim()) {
+      return false;
+    }
+    if (filters.actor && filters.actor.trim()) {
+      const needle = filters.actor.trim().toLowerCase();
+      if (!event.actor.toLowerCase().includes(needle)) {
+        return false;
+      }
+    }
+    if (filters.entityId && filters.entityId.trim() && event.entityId !== filters.entityId.trim()) {
+      return false;
+    }
+    if (filters.startDate) {
+      if (new Date(event.createdAt).getTime() < new Date(filters.startDate).getTime()) {
+        return false;
+      }
+    }
+    if (filters.endDate) {
+      if (new Date(event.createdAt).getTime() > new Date(filters.endDate).getTime()) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+export async function listAuditEvents(filters: AuditEventFilters = {}) {
+  const limit = Math.max(1, Math.min(200, filters.limit ?? 50));
+  const db = getDatabase();
+
+  if (!db) {
+    return applyAuditFiltersInMemory(memoryAuditEvents, filters).slice(0, limit);
+  }
+
+  const conditions = [] as ReturnType<typeof eq>[];
+  if (filters.action && filters.action.trim()) {
+    conditions.push(eq(auditEvents.action, filters.action.trim()));
+  }
+  if (filters.actor && filters.actor.trim()) {
+    conditions.push(sql`lower(${auditEvents.actor}) like ${`%${filters.actor.trim().toLowerCase()}%`}` as ReturnType<typeof eq>);
+  }
+  if (filters.entityId && filters.entityId.trim()) {
+    conditions.push(eq(auditEvents.entityId, filters.entityId.trim()));
+  }
+  if (filters.startDate) {
+    conditions.push(gte(auditEvents.createdAt, new Date(filters.startDate)));
+  }
+  if (filters.endDate) {
+    conditions.push(lte(auditEvents.createdAt, new Date(filters.endDate)));
+  }
+
+  const baseQuery = db
+    .select({
       id: auditEvents.id,
       actor: auditEvents.actor,
+      actorRole: auditEvents.actorRole,
+      actorName: auditEvents.actorName,
       action: auditEvents.action,
       entityId: auditEvents.entityId,
       details: auditEvents.details,
-      createdAt: auditEvents.createdAt
+      previousHash: auditEvents.previousHash,
+      hash: auditEvents.hash,
+      createdAt: auditEvents.createdAt,
     })
-    .from(auditEvents)
-    .orderBy(desc(auditEvents.createdAt))
-    .limit(20);
+    .from(auditEvents);
+
+  const filtered = conditions.length ? baseQuery.where(and(...conditions)) : baseQuery;
+  const rows = await filtered.orderBy(desc(auditEvents.createdAt)).limit(limit);
 
   return rows.map((row) => ({
     id: String(row.id),
     actor: row.actor,
+    actorRole: row.actorRole ?? null,
+    actorName: row.actorName ?? null,
     action: row.action,
     entityId: row.entityId ?? undefined,
     details: row.details,
-    createdAt: row.createdAt.toISOString()
+    previousHash: row.previousHash ?? GENESIS_PREVIOUS_HASH,
+    hash: row.hash ?? "",
+    createdAt: row.createdAt.toISOString(),
   })) satisfies AuditEvent[];
+}
+
+/**
+ * Re-derives the audit hash chain in chronological order to prove no event was
+ * dropped, edited, or reordered. Returns ok=true when the recomputed hash for
+ * each event matches what was persisted and each previous_hash points at the
+ * row immediately before it.
+ */
+export async function verifyAuditIntegrity() {
+  const db = getDatabase();
+  let chain: AuditChainEvent[] = [];
+
+  if (!db) {
+    chain = [...memoryAuditEvents]
+      .reverse()
+      .map((event) => ({
+        previousHash: event.previousHash,
+        actor: event.actor,
+        actorRole: event.actorRole ?? null,
+        actorName: event.actorName ?? null,
+        action: event.action,
+        entityId: event.entityId ?? null,
+        details: event.details,
+        createdAt: event.createdAt,
+        hash: event.hash,
+      }));
+  } else {
+    const rows = await db
+      .select({
+        actor: auditEvents.actor,
+        actorRole: auditEvents.actorRole,
+        actorName: auditEvents.actorName,
+        action: auditEvents.action,
+        entityId: auditEvents.entityId,
+        details: auditEvents.details,
+        previousHash: auditEvents.previousHash,
+        hash: auditEvents.hash,
+        createdAt: auditEvents.createdAt,
+      })
+      .from(auditEvents)
+      .orderBy(asc(auditEvents.createdAt), asc(auditEvents.id));
+
+    chain = rows.map((row) => ({
+      previousHash: row.previousHash ?? GENESIS_PREVIOUS_HASH,
+      actor: row.actor,
+      actorRole: row.actorRole ?? null,
+      actorName: row.actorName ?? null,
+      action: row.action,
+      entityId: row.entityId ?? null,
+      details: row.details,
+      createdAt: row.createdAt.toISOString(),
+      hash: row.hash ?? "",
+    }));
+  }
+
+  return verifyAuditChain(chain);
 }
 
 export async function listAnalyses() {
@@ -816,4 +1116,156 @@ export function resetCandidateRecommendationsForTests() {
 
 export function resetAnalysesForTests() {
   memoryStore.length = 0;
+}
+
+export function resetAuditEventsForTests() {
+  memoryAuditEvents.length = 0;
+}
+
+export function resetAdminAlertsForTests() {
+  memoryAdminAlerts.length = 0;
+}
+
+export type AdminAlertInput = {
+  source: string;
+  severity: AdminAlertSeverity;
+  message: string;
+  details?: Record<string, unknown>;
+};
+
+export async function recordAdminAlert(input: AdminAlertInput): Promise<AdminAlert> {
+  const alert: AdminAlert = {
+    id: crypto.randomUUID(),
+    source: input.source,
+    severity: input.severity,
+    status: "open",
+    message: input.message,
+    details: input.details ?? {},
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+    resolvedBy: null,
+  };
+
+  const db = getDatabase();
+  if (!db) {
+    memoryAdminAlerts.unshift(alert);
+    return alert;
+  }
+
+  await db.insert(adminAlerts).values({
+    id: alert.id,
+    source: alert.source,
+    severity: alert.severity,
+    status: alert.status,
+    message: alert.message,
+    details: alert.details,
+  });
+
+  return alert;
+}
+
+export type AdminAlertListFilters = {
+  status?: AdminAlertStatus;
+  limit?: number;
+};
+
+export async function listAdminAlerts(filters: AdminAlertListFilters = {}): Promise<AdminAlert[]> {
+  const limit = Math.max(1, Math.min(200, filters.limit ?? 50));
+  const db = getDatabase();
+  if (!db) {
+    return memoryAdminAlerts
+      .filter((alert) => (filters.status ? alert.status === filters.status : true))
+      .slice(0, limit);
+  }
+
+  const baseQuery = db
+    .select({
+      id: adminAlerts.id,
+      source: adminAlerts.source,
+      severity: adminAlerts.severity,
+      status: adminAlerts.status,
+      message: adminAlerts.message,
+      details: adminAlerts.details,
+      createdAt: adminAlerts.createdAt,
+      resolvedAt: adminAlerts.resolvedAt,
+      resolvedBy: adminAlerts.resolvedBy,
+    })
+    .from(adminAlerts);
+
+  const filteredQuery = filters.status
+    ? baseQuery.where(eq(adminAlerts.status, filters.status))
+    : baseQuery;
+  const rows = await filteredQuery.orderBy(desc(adminAlerts.createdAt)).limit(limit);
+
+  return rows.map((row) => ({
+    id: row.id,
+    source: row.source,
+    severity: row.severity as AdminAlertSeverity,
+    status: row.status as AdminAlertStatus,
+    message: row.message,
+    details: row.details,
+    createdAt: row.createdAt.toISOString(),
+    resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
+    resolvedBy: row.resolvedBy ?? null,
+  }));
+}
+
+export async function resolveAdminAlert(input: { id: string; resolvedBy: string }): Promise<AdminAlert | null> {
+  const db = getDatabase();
+  const resolvedAt = new Date().toISOString();
+
+  if (!db) {
+    const index = memoryAdminAlerts.findIndex((alert) => alert.id === input.id);
+    if (index === -1) {
+      return null;
+    }
+    if (memoryAdminAlerts[index].status === "resolved") {
+      return memoryAdminAlerts[index];
+    }
+    memoryAdminAlerts[index] = {
+      ...memoryAdminAlerts[index],
+      status: "resolved",
+      resolvedAt,
+      resolvedBy: input.resolvedBy,
+    };
+    return memoryAdminAlerts[index];
+  }
+
+  await db
+    .update(adminAlerts)
+    .set({ status: "resolved", resolvedAt: new Date(resolvedAt), resolvedBy: input.resolvedBy })
+    .where(eq(adminAlerts.id, input.id));
+
+  const rows = await db
+    .select({
+      id: adminAlerts.id,
+      source: adminAlerts.source,
+      severity: adminAlerts.severity,
+      status: adminAlerts.status,
+      message: adminAlerts.message,
+      details: adminAlerts.details,
+      createdAt: adminAlerts.createdAt,
+      resolvedAt: adminAlerts.resolvedAt,
+      resolvedBy: adminAlerts.resolvedBy,
+    })
+    .from(adminAlerts)
+    .where(eq(adminAlerts.id, input.id))
+    .limit(1);
+
+  if (!rows.length) {
+    return null;
+  }
+
+  const row = rows[0];
+  return {
+    id: row.id,
+    source: row.source,
+    severity: row.severity as AdminAlertSeverity,
+    status: row.status as AdminAlertStatus,
+    message: row.message,
+    details: row.details,
+    createdAt: row.createdAt.toISOString(),
+    resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
+    resolvedBy: row.resolvedBy ?? null,
+  };
 }

@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getStorageConfig } from "./env";
 
 type StoredObject = {
@@ -122,6 +122,62 @@ export async function getResumeObject(storageUrl: string): Promise<{
     return { bytes, contentType };
   } catch {
     return null;
+  }
+}
+
+export async function deleteResumeObject(storageUrl: string): Promise<{
+  supported: boolean;
+  deleted: boolean;
+  error?: string;
+}> {
+  let storageConfig;
+  try {
+    storageConfig = getStorageConfig();
+  } catch (error) {
+    return {
+      supported: false,
+      deleted: false,
+      error: error instanceof Error ? error.message : "Storage configuration could not be read.",
+    };
+  }
+
+  if (storageConfig.provider === "local") {
+    if (!storageUrl.startsWith("local://")) {
+      return { supported: false, deleted: false };
+    }
+
+    const key = storageUrl.slice("local://".length);
+    return { supported: true, deleted: localObjects.delete(key) };
+  }
+
+  const client = getR2Client();
+  if (!client) {
+    return { supported: false, deleted: false };
+  }
+
+  const bucket = storageConfig.bucket;
+  const keyFromR2 = resolveStoredObjectKey(storageUrl, bucket);
+  const keyFromPublic = resolvePublicObjectKey(storageUrl, storageConfig.publicBaseUrl ?? undefined);
+  const key = keyFromR2 ?? keyFromPublic;
+
+  if (!key) {
+    return { supported: false, deleted: false };
+  }
+
+  try {
+    await client.send(
+      new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+    );
+    return { supported: true, deleted: true };
+  } catch (error) {
+    return {
+      supported: true,
+      deleted: false,
+      error: error instanceof Error ? error.message : "Resume object deletion failed.",
+    };
   }
 }
 

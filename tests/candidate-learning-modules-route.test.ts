@@ -65,6 +65,8 @@ describe("candidate learning modules route access", () => {
     await expect(response.json()).resolves.toEqual({ candidate });
     expect(mockAssignCandidateLearningModules).toHaveBeenCalledWith({
       actor: "learning@skillmatch.demo",
+      actorRole: "learning_development",
+      actorName: "Lina L&D",
       candidateId: "cand-1",
       moduleIds: ["sde-ii:AWS"]
     });

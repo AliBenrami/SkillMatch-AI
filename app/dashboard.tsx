@@ -32,12 +32,15 @@ import { roles, type RoleRequirement } from "@/lib/seed-data";
 import type { SessionUser } from "@/lib/auth-model";
 import { canAccess, type AccessArea } from "@/lib/auth-permissions";
 import type {
+  AdminAlert,
   AnalysisRecord,
   AuditEvent,
   CandidateDuplicateWarning,
   SavedTargetRole,
 } from "@/lib/db";
+import type { LearningReport, LearningReportGroup } from "@/lib/learning-report";
 import type { CandidateAnalysis } from "@/lib/skillmatch";
+import { resumeUploadConfig } from "@/lib/upload-config";
 
 type UploadResponse = {
   candidates: CandidateAnalysis[];
@@ -58,11 +61,47 @@ type View = "dashboard" | "analyses" | "learning" | "workforce" | "audit" | "set
 type LoadStatus = "loading" | "ready" | "forbidden" | "error";
 type NavAccess = "all" | "candidate_analysis" | AccessArea;
 
+type RuntimeHealth = {
+  status: string;
+  database: {
+    configured: boolean;
+    mode: string;
+    schemaReady: boolean;
+    missingTables: readonly string[];
+    missingColumns?: readonly string[];
+  };
+  storage?: {
+    configured: boolean;
+    provider: string;
+    mode: string;
+    persistent: boolean;
+    publicBaseUrlConfigured: boolean;
+    objectDeletionSupported: boolean;
+    error?: string;
+  };
+};
+
+type DemoSettingsPreferences = {
+  defaultRoleId: string;
+  showParserFailureDetails: boolean;
+  compactCandidateCards: boolean;
+  adminReviewMode: boolean;
+};
+
+const demoPreferencesStorageKey = "skillmatch.demoPreferences.v1";
+
+const defaultDemoPreferences: DemoSettingsPreferences = {
+  defaultRoleId: "sde-ii",
+  showParserFailureDetails: true,
+  compactCandidateCards: false,
+  adminReviewMode: false,
+};
+
 const navItems: Array<{ id: View; label: string; icon: LucideIcon; access: NavAccess }> = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, access: "all" },
   { id: "analyses", label: "Analyses", icon: BarChart3, access: "candidate_analysis" },
   { id: "learning", label: "Learning", icon: BookOpen, access: "learning" },
-  { id: "workforce", label: "Workforce", icon: Users, access: "recruiter" },
+  { id: "workforce", label: "Workforce", icon: Users, access: "learning" },
   { id: "audit", label: "Audit Log", icon: ShieldCheck, access: "admin" },
   { id: "settings", label: "Settings", icon: Settings, access: "all" }
 ];
@@ -104,7 +143,7 @@ function getRestrictedViewCopy(view: View) {
   if (view === "workforce") {
     return {
       title: "Workforce",
-      text: "Recruiter, hiring manager, or system administrator access is required for workforce-level role coverage."
+      text: "Learning and development or system administrator access is required for workforce skill-gap reporting."
     };
   }
   return {
@@ -120,6 +159,47 @@ async function readApiError(response: Response, fallback: string) {
 
 function fileKey(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function roleLabel(role: SessionUser["role"]) {
+  return role.replaceAll("_", " ");
+}
+
+function parseDemoSettingsPreferences(value: string | null): DemoSettingsPreferences {
+  if (!value) {
+    return defaultDemoPreferences;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<DemoSettingsPreferences>;
+    return {
+      defaultRoleId: roles.some((role) => role.id === parsed.defaultRoleId)
+        ? (parsed.defaultRoleId as string)
+        : defaultDemoPreferences.defaultRoleId,
+      showParserFailureDetails:
+        typeof parsed.showParserFailureDetails === "boolean"
+          ? parsed.showParserFailureDetails
+          : defaultDemoPreferences.showParserFailureDetails,
+      compactCandidateCards:
+        typeof parsed.compactCandidateCards === "boolean"
+          ? parsed.compactCandidateCards
+          : defaultDemoPreferences.compactCandidateCards,
+      adminReviewMode:
+        typeof parsed.adminReviewMode === "boolean"
+          ? parsed.adminReviewMode
+          : defaultDemoPreferences.adminReviewMode,
+    };
+  } catch {
+    return defaultDemoPreferences;
+  }
+}
+
+function readInitialDemoSettingsPreferences() {
+  if (typeof window === "undefined") {
+    return defaultDemoPreferences;
+  }
+
+  return parseDemoSettingsPreferences(window.localStorage.getItem(demoPreferencesStorageKey));
 }
 
 function candidateHasStoredResumeFile(candidate: Pick<CandidateAnalysis, "storageUrl" | "fileName">) {
@@ -166,12 +246,30 @@ export default function Dashboard({
   initialView?: string;
 }) {
   const [view, setView] = useState<View>(() => parseView(initialView) ?? "dashboard");
-  const [roleId, setRoleId] = useState("sde-ii");
+  const [roleId, setRoleId] = useState(() => readInitialDemoSettingsPreferences().defaultRoleId);
   const [files, setFiles] = useState<File[]>([]);
   const [candidates, setCandidates] = useState<CandidateAnalysis[]>([]);
   const [analyses, setAnalyses] = useState<AnalysisRecord[]>([]);
   const [savedRoles, setSavedRoles] = useState<SavedTargetRole[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [auditIntegrity, setAuditIntegrity] = useState<{ ok: boolean; issues: number }>({ ok: true, issues: 0 });
+  const [auditFilters, setAuditFilters] = useState({
+    action: "",
+    actor: "",
+    entityId: "",
+    startDate: "",
+    endDate: "",
+  });
+  const [adminAlerts, setAdminAlerts] = useState<AdminAlert[]>([]);
+  const [adminAlertStatus, setAdminAlertStatus] = useState<LoadStatus>(
+    canAccess(user, "admin") ? "loading" : "forbidden",
+  );
+  const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<LoadStatus>("loading");
+  const [learningReport, setLearningReport] = useState<LearningReport | null>(null);
+  const [learningReportStatus, setLearningReportStatus] = useState<LoadStatus>(
+    canAccess(user, "learning") ? "loading" : "forbidden",
+  );
   const [failures, setFailures] = useState<UploadResponse["failures"]>([]);
   const [uploadDuplicateWarnings, setUploadDuplicateWarnings] = useState<CandidateDuplicateWarning[]>([]);
   const [overrideCandidate, setOverrideCandidate] = useState<CandidateAnalysis | null>(null);
@@ -197,6 +295,10 @@ export default function Dashboard({
   const [educationFilter, setEducationFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [minYearsFilter, setMinYearsFilter] = useState("");
+  const [deletingCandidateId, setDeletingCandidateId] = useState("");
+  const [demoPreferences, setDemoPreferences] = useState<DemoSettingsPreferences>(() =>
+    readInitialDemoSettingsPreferences()
+  );
   const serverFiltersRef = useRef({
     skill: "",
     education: "",
@@ -228,23 +330,21 @@ export default function Dashboard({
   const firstAccessibleView = accessibleNavItems[0]?.id ?? "dashboard";
   const userCanViewAnalysisHistory = canAccess(user, "recruiter") || canAccess(user, "learning");
   const userCanViewAudit = canAccess(user, "admin");
+  const userCanDeleteCandidates = canAccess(user, "recruiter");
+  const roleAccessSummary = useMemo(
+    () =>
+      navItems.map((item) => ({
+        label: item.label,
+        allowed: canOpenAccess(user, item.access),
+      })),
+    [user]
+  );
   const activeViewAllowed = canOpenView(user, view);
   const showRestrictedView = !activeViewAllowed && manualRestrictedView === view;
   const screenView: View | null = showRestrictedView ? null : activeViewAllowed ? view : firstAccessibleView;
-
-  const workforceGaps = useMemo(() => {
-    const counts = new Map<string, number>();
-    candidates.forEach((candidate) => {
-      candidate.topPositions[0]?.missingSkills.slice(0, 5).forEach((gap) => {
-        counts.set(gap.skill, (counts.get(gap.skill) ?? 0) + 1);
-      });
-    });
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
-  }, [candidates]);
-
-  const workforceGapMeterMax = Math.max(files.length, candidates.length, 5);
+  const workforceGaps =
+    learningReport?.topMissingSkills.map((gap) => [gap.skill, gap.affectedCandidates] as [string, number]) ?? [];
+  const workforceGapMeterMax = Math.max(learningReport?.totalCandidates ?? candidates.length, 5);
 
   const skillGapChartItems = useMemo<SkillGapChartItem[]>(() => {
     if (!selectedResult) {
@@ -312,13 +412,42 @@ export default function Dashboard({
       setAnalysisHistoryStatus(userCanViewAnalysisHistory ? "loading" : "forbidden");
       setSavedRolesStatus("loading");
       setAuditStatus(userCanViewAudit ? "loading" : "forbidden");
+      setRuntimeStatus("loading");
+      const userCanViewLearning = canAccess(user, "learning");
+      const userCanViewAdminAlerts = canAccess(user, "admin");
+      if (userCanViewLearning) {
+        setLearningReportStatus("loading");
+      }
+      if (userCanViewAdminAlerts) {
+        setAdminAlertStatus("loading");
+      }
+
+      const auditQueryParams = new URLSearchParams();
+      Object.entries(auditFilters).forEach(([key, value]) => {
+        const trimmed = value.trim();
+        if (trimmed) {
+          auditQueryParams.set(key, trimmed);
+        }
+      });
+      const auditUrl = auditQueryParams.size ? `/api/audit?${auditQueryParams.toString()}` : "/api/audit";
 
       try {
-        const [candidateResponse, analysisResponse, savedRolesResponse, auditResponse] = await Promise.all([
+        const [
+          candidateResponse,
+          analysisResponse,
+          savedRolesResponse,
+          auditResponse,
+          learningReportResponse,
+          adminAlertsResponse,
+          healthResponse,
+        ] = await Promise.all([
           skipCandidates ? Promise.resolve(null) : fetch(`/api/candidates${candidateQuery}`),
           userCanViewAnalysisHistory ? fetch("/api/analyses") : Promise.resolve(null),
           fetch("/api/saved-roles"),
-          userCanViewAudit ? fetch("/api/audit") : Promise.resolve(null)
+          userCanViewAudit ? fetch(auditUrl) : Promise.resolve(null),
+          userCanViewLearning ? fetch("/api/learning-report") : Promise.resolve(null),
+          userCanViewAdminAlerts ? fetch("/api/admin-alerts") : Promise.resolve(null),
+          fetch("/api/health"),
         ]);
 
         if (candidateResponse) {
@@ -400,8 +529,15 @@ export default function Dashboard({
 
         if (auditResponse) {
           if (auditResponse.ok) {
-            const payload = (await auditResponse.json()) as { events: AuditEvent[] };
+            const payload = (await auditResponse.json()) as {
+              events: AuditEvent[];
+              integrity?: { ok: boolean; issues: Array<unknown> };
+            };
             setAuditEvents(payload.events);
+            setAuditIntegrity({
+              ok: payload.integrity?.ok ?? true,
+              issues: payload.integrity?.issues?.length ?? 0,
+            });
             setAuditStatus("ready");
           } else if (auditResponse.status === 403) {
             setAuditEvents([]);
@@ -420,6 +556,58 @@ export default function Dashboard({
           }
         } else {
           setAuditEvents([]);
+        }
+
+        if (learningReportResponse) {
+          if (learningReportResponse.ok) {
+            const payload = (await learningReportResponse.json()) as { report: LearningReport };
+            setLearningReport(payload.report);
+            setLearningReportStatus("ready");
+          } else if (learningReportResponse.status === 403) {
+            setLearningReport(null);
+            setLearningReportStatus("forbidden");
+          } else {
+            setLearningReportStatus("error");
+            errors.push(
+              await readApiError(
+                learningReportResponse,
+                `Could not load L&D learning report (HTTP ${learningReportResponse.status}).`
+              )
+            );
+          }
+        } else {
+          setLearningReport(null);
+        }
+
+        if (adminAlertsResponse) {
+          if (adminAlertsResponse.ok) {
+            const payload = (await adminAlertsResponse.json()) as { alerts: AdminAlert[] };
+            setAdminAlerts(payload.alerts);
+            setAdminAlertStatus("ready");
+          } else if (adminAlertsResponse.status === 403) {
+            setAdminAlerts([]);
+            setAdminAlertStatus("forbidden");
+          } else {
+            setAdminAlertStatus("error");
+            errors.push(
+              await readApiError(
+                adminAlertsResponse,
+                `Could not load admin alerts (HTTP ${adminAlertsResponse.status}).`
+              )
+            );
+          }
+        } else {
+          setAdminAlerts([]);
+        }
+
+        if (healthResponse.ok) {
+          const payload = (await healthResponse.json()) as RuntimeHealth;
+          setRuntimeHealth(payload);
+          setRuntimeStatus("ready");
+        } else {
+          const payload = (await healthResponse.json().catch(() => null)) as RuntimeHealth | null;
+          setRuntimeHealth(payload);
+          setRuntimeStatus(payload ? "ready" : "error");
         }
 
         if (errors.length) {
@@ -441,15 +629,18 @@ export default function Dashboard({
         if (userCanViewAudit) {
           setAuditStatus("error");
         }
+        setRuntimeStatus("error");
       } finally {
         setIsRefreshing(false);
       }
     },
     [
+      auditFilters,
       educationFilter,
       locationFilter,
       minYearsFilter,
       skillFilter,
+      user,
       userCanViewAnalysisHistory,
       userCanViewAudit
     ]
@@ -684,6 +875,74 @@ export default function Dashboard({
     setNotice(`Updated learning modules for ${payload.candidate.candidateName}.`);
   }
 
+  async function deleteCandidateResume(candidate: CandidateAnalysis) {
+    if (!userCanDeleteCandidates) {
+      setNotice("Your role cannot delete saved candidate resume records.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete the saved resume record for ${candidate.candidateName}? This removes the candidate recommendation row from the demo workspace.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingCandidateId(candidate.id);
+    try {
+      const response = await fetch(`/api/candidates/${candidate.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        setNotice(payload.error ?? "Could not delete this resume record.");
+        return;
+      }
+
+      const remainingCandidates = candidates.filter((item) => item.id !== candidate.id);
+      setCandidates(remainingCandidates);
+      if (selectedCandidateId === candidate.id) {
+        setSelectedCandidateId(remainingCandidates[0]?.id ?? "");
+      }
+      if (selectedLearningCandidateId === candidate.id) {
+        setSelectedLearningCandidateId(remainingCandidates[0]?.id ?? "");
+      }
+      setNotice(`Deleted resume record for ${candidate.candidateName}.`);
+      void refreshRecords();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not delete this resume record.");
+    } finally {
+      setDeletingCandidateId("");
+    }
+  }
+
+  async function saveDemoPreferences() {
+    window.localStorage.setItem(demoPreferencesStorageKey, JSON.stringify(demoPreferences));
+    if (roles.some((role) => role.id === demoPreferences.defaultRoleId)) {
+      setRoleId(demoPreferences.defaultRoleId);
+    }
+
+    if (user.role === "system_admin") {
+      try {
+        const response = await fetch("/api/settings/demo-preferences", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: "admin", preferences: demoPreferences }),
+        });
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as { error?: string };
+          setNotice(payload.error ?? "Saved demo preferences, but the admin audit event failed.");
+          return;
+        }
+      } catch {
+        setNotice("Saved demo preferences, but the admin audit event failed.");
+        return;
+      }
+      setNotice("Saved demo preferences and recorded an admin settings audit event.");
+      return;
+    }
+
+    setNotice("Saved demo preferences in this browser.");
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
@@ -800,6 +1059,11 @@ export default function Dashboard({
             </button>
           </div>
         ) : null}
+        {notice && screenView !== "dashboard" ? (
+          <p className="notice" role="status" aria-live="polite">
+            {notice}
+          </p>
+        ) : null}
 
         {showRestrictedView ? <RestrictedView user={user} view={view} /> : null}
 
@@ -810,6 +1074,7 @@ export default function Dashboard({
                 <h2>Upload resumes</h2>
                 <div
                   className="drop-zone"
+                  data-testid="resume-drop-zone"
                   onDrop={(event) => {
                     event.preventDefault();
                     addFiles(event.dataTransfer.files);
@@ -1062,15 +1327,29 @@ export default function Dashboard({
                     {candidate.structured.yearsExperience !== null ? ` | ${candidate.structured.yearsExperience} yrs` : ""}
                   </span>
                   <small>{candidate.topPositions[0]?.explanation}</small>
-                  {userCanSubmitRecruiterOverride ? (
-                    <button
-                      type="button"
-                      className="icon-text-button mt-3 text-left self-start"
-                      onClick={() => setOverrideCandidate(candidate)}
-                    >
-                      Flag recruiter override (audit-only)
-                    </button>
-                  ) : null}
+                  <div className="candidate-card-actions">
+                    {userCanSubmitRecruiterOverride ? (
+                      <button
+                        type="button"
+                        className="icon-text-button text-left"
+                        onClick={() => setOverrideCandidate(candidate)}
+                      >
+                        Flag recruiter override (audit-only)
+                      </button>
+                    ) : null}
+                    {userCanDeleteCandidates ? (
+                      <button
+                        type="button"
+                        className="icon-text-button danger-button"
+                        disabled={deletingCandidateId === candidate.id}
+                        aria-label={`Delete resume for ${candidate.candidateName}`}
+                        onClick={() => void deleteCandidateResume(candidate)}
+                      >
+                        <Trash2 aria-hidden="true" />
+                        {deletingCandidateId === candidate.id ? "Deleting..." : "Delete resume"}
+                      </button>
+                    ) : null}
+                  </div>
                 </article>
               )) : null}
               {candidateStatus === "ready" && !filteredCandidates.length ? (
@@ -1147,26 +1426,39 @@ export default function Dashboard({
               onRemove={removeSavedRole}
               onSelect={setRoleId}
             />
+            <LearningReportPanel report={learningReport} status={learningReportStatus} />
           </section>
         ) : null}
 
         {screenView === "workforce" ? (
           <section className="screen-stack">
             <div className="screen-toolbar">
-              <span className="text-[13px] text-muted">Counts reflect analyzed candidates from this workspace.</span>
+              <span className="text-[13px] text-muted">
+                Workforce / L&amp;D report based on saved candidate analyses in this workspace.
+              </span>
               <button className="icon-text-button" type="button" disabled={isRefreshing} onClick={() => void refreshRecords()}>
                 <RefreshCw aria-hidden="true" />
                 {isRefreshing ? "Refreshing..." : "Refresh"}
               </button>
             </div>
             <section className="metric-grid">
-              <Metric label="Open role families" value={roles.length} />
-              <Metric label="Candidates reviewed" value={candidates.length} />
-              <Metric label="Tracked skill gaps" value={workforceGaps.length || selectedRole.requiredSkills.length} />
+              <Metric label="Analyzed candidates" value={learningReport?.totalCandidates ?? candidates.length} />
+              <Metric label="Top missing skills" value={learningReport?.topMissingSkills.length ?? 0} />
+              <Metric
+                label="Report groups"
+                value={
+                  learningReport
+                    ? learningReport.byDepartment.length +
+                      learningReport.byEmployeeGroup.length +
+                      learningReport.byRoleFamily.length
+                    : 0
+                }
+              />
             </section>
+            <WorkforceReportPanel report={learningReport} status={learningReportStatus} />
             <section className="concept-panel">
               <div className="panel-heading">
-                <h2>Role Coverage Matrix</h2>
+                <h2>Role catalog reference</h2>
                 <span>Seed catalog (demo)</span>
               </div>
               <p className="m-0 mb-3 text-[12px] leading-snug text-muted">
@@ -1186,7 +1478,7 @@ export default function Dashboard({
               <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-border pb-3">
                 <h2 className="m-0 text-[15px] font-bold tracking-tight text-[#0f172a]">Common skill gaps</h2>
                 <span className="max-w-xs text-end text-xs font-semibold leading-snug text-muted sm:max-w-sm">
-                  {selectedRole.title}
+                  All analyzed candidates
                 </span>
               </div>
               <p className="m-0 text-[13px] leading-relaxed text-muted">
@@ -1255,6 +1547,38 @@ export default function Dashboard({
 
         {screenView === "audit" ? (
           <section className="screen-stack">
+            <AdminAlertsPanel
+              alerts={adminAlerts}
+              status={adminAlertStatus}
+              isRefreshing={isRefreshing}
+              onResolve={async (alertId) => {
+                const response = await fetch(`/api/admin-alerts/${alertId}/resolve`, { method: "POST" });
+                if (response.ok) {
+                  setNotice("Alert resolved.");
+                  void refreshRecords();
+                } else {
+                  setNotice("Could not resolve alert.");
+                }
+              }}
+              onSeedDemo={async () => {
+                const response = await fetch("/api/admin-alerts", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    source: "sync",
+                    severity: "info",
+                    message: "Demo: future sync integration placeholder (no live integration yet).",
+                  }),
+                });
+                if (response.ok) {
+                  setNotice("Recorded a placeholder sync alert for demo purposes.");
+                  void refreshRecords();
+                } else {
+                  setNotice("Could not record placeholder alert.");
+                }
+              }}
+              onRetry={() => void refreshRecords()}
+            />
             <section className="concept-panel audit-log-panel">
               <div className="panel-heading">
                 <h2>Audit Log</h2>
@@ -1262,6 +1586,13 @@ export default function Dashboard({
               </div>
               {user.role === "system_admin" ? (
                 <>
+                  <AuditIntegrityBanner integrity={auditIntegrity} />
+                  <AuditFilterToolbar
+                    filters={auditFilters}
+                    onChange={setAuditFilters}
+                    onApply={() => void refreshRecords()}
+                    isRefreshing={isRefreshing}
+                  />
                   <div className="mb-3 flex flex-wrap justify-end gap-2">
                     <button className="icon-text-button" type="button" disabled={isRefreshing} onClick={() => void refreshRecords()}>
                       <RefreshCw aria-hidden="true" />
@@ -1282,7 +1613,16 @@ export default function Dashboard({
 
         {screenView === "settings" ? (
           <section className="screen-stack">
-            <section className="concept-panel settings-grid">
+            <SettingsPanel
+              demoPreferences={demoPreferences}
+              onPreferenceChange={setDemoPreferences}
+              onSavePreferences={() => void saveDemoPreferences()}
+              roleAccessSummary={roleAccessSummary}
+              runtimeHealth={runtimeHealth}
+              runtimeStatus={runtimeStatus}
+              user={user}
+            />
+            <section className="concept-panel settings-grid hidden">
               <div>
                 <h2>Account</h2>
                 <p>{user.name}</p>
@@ -1312,6 +1652,198 @@ export default function Dashboard({
         onRecordedNotice={(note) => setNotice(note)}
       />
     </main>
+  );
+}
+
+function WorkforceReportPanel({ report, status }: { report: LearningReport | null; status: LoadStatus }) {
+  if (status === "loading") {
+    return <LoadingPanel title="Building Workforce report" text="Aggregating missing skills by department, employee group, and role family." />;
+  }
+
+  if (status === "forbidden") {
+    return (
+      <EmptyPanel
+        title="Workforce report restricted"
+        text="Learning and development or system administrator access is required for workforce skill-gap reporting."
+      />
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <EmptyPanel
+        title="Workforce report unavailable"
+        text="The grouped skill-gap report could not be loaded. Refresh the workspace and try again."
+      />
+    );
+  }
+
+  if (!report || report.totalCandidates === 0) {
+    return (
+      <EmptyPanel
+        title="No Workforce report data yet"
+        text="Upload and analyze resumes first. This page will then group common skill gaps for L&D planning."
+      />
+    );
+  }
+
+  return (
+    <section className="concept-panel" data-testid="workforce-report-panel">
+      <div className="panel-heading">
+        <h2>Workforce / L&amp;D skill-gap report</h2>
+        <span>{report.totalCandidates} analyzed</span>
+      </div>
+      <p className="m-0 mb-3 text-[13px] leading-relaxed text-muted">
+        Groups missing skills from candidate recommendations into MVP workforce views for learning planning.
+      </p>
+      <div className="workforce-report-grid">
+        <div>
+          <h3>Top missing skills</h3>
+          <ul className="workforce-skill-list">
+            {report.topMissingSkills.map((gap) => (
+              <li key={gap.skill}>
+                <strong>{gap.skill}</strong>
+                <span>{gap.affectedCandidates} affected candidate{gap.affectedCandidates === 1 ? "" : "s"}</span>
+                <em>{gap.recommendation}</em>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <LearningReportColumn title="By department" groups={report.byDepartment} />
+          <LearningReportColumn title="By employee group" groups={report.byEmployeeGroup} />
+          <LearningReportColumn title="By role family" groups={report.byRoleFamily} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SettingsPanel({
+  demoPreferences,
+  onPreferenceChange,
+  onSavePreferences,
+  roleAccessSummary,
+  runtimeHealth,
+  runtimeStatus,
+  user,
+}: {
+  demoPreferences: DemoSettingsPreferences;
+  onPreferenceChange: (next: DemoSettingsPreferences) => void;
+  onSavePreferences: () => void;
+  roleAccessSummary: Array<{ label: string; allowed: boolean }>;
+  runtimeHealth: RuntimeHealth | null;
+  runtimeStatus: LoadStatus;
+  user: SessionUser;
+}) {
+  const databaseLabel = runtimeHealth?.database.configured
+    ? `Postgres database${runtimeHealth.database.schemaReady ? "" : " (schema needs setup)"}`
+    : "Memory database fallback";
+  const storageLabel =
+    runtimeHealth?.storage?.provider === "r2"
+      ? "Cloudflare R2 / S3-compatible storage"
+      : "Local in-memory resume storage";
+  const visibleAreas = roleAccessSummary.filter((item) => item.allowed).map((item) => item.label);
+  const hiddenAreas = roleAccessSummary.filter((item) => !item.allowed).map((item) => item.label);
+
+  return (
+    <>
+      <section className="concept-panel settings-grid" data-testid="settings-panel">
+        <div>
+          <h2>Account summary</h2>
+          <p>{user.name}</p>
+          <strong>{user.email}</strong>
+          <span>{roleLabel(user.role)}</span>
+        </div>
+        <div>
+          <h2>Demo runtime mode</h2>
+          <p>{runtimeStatus === "loading" ? "Loading runtime status..." : databaseLabel}</p>
+          <p>{runtimeStatus === "loading" ? "Checking resume storage..." : storageLabel}</p>
+          <p>
+            {runtimeHealth?.storage?.objectDeletionSupported === false
+              ? "Stored resume cleanup is not available for the current storage configuration."
+              : "Stored resume cleanup is supported for local demo objects and configured R2 objects."}
+          </p>
+        </div>
+      </section>
+
+      <section className="concept-panel settings-grid">
+        <div>
+          <h2>Upload preferences</h2>
+          <p>Accepted files: {resumeUploadConfig.acceptedFileTypes.join(", ")}</p>
+          <p>Max resume file size: {resumeUploadConfig.maxResumeFileSizeLabel}</p>
+          <p>Max batch size: {resumeUploadConfig.maxBatchResumeCount} resumes, including files inside zips</p>
+          <p>Zip demo limit: {resumeUploadConfig.maxRawZipUploadCount} zip files, {resumeUploadConfig.maxZipFileSizeLabel} each</p>
+        </div>
+        <div>
+          <h2>Role access summary</h2>
+          <p>Visible to this role: {visibleAreas.join(", ")}</p>
+          <p>Hidden for this role: {hiddenAreas.length ? hiddenAreas.join(", ") : "None"}</p>
+        </div>
+      </section>
+
+      <section className="concept-panel settings-grid">
+        <div>
+          <h2>Browser demo preferences</h2>
+          <label className="settings-field">
+            Default target role
+            <select
+              value={demoPreferences.defaultRoleId}
+              onChange={(event) =>
+                onPreferenceChange({ ...demoPreferences, defaultRoleId: event.target.value })
+              }
+            >
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={demoPreferences.showParserFailureDetails}
+              onChange={(event) =>
+                onPreferenceChange({ ...demoPreferences, showParserFailureDetails: event.target.checked })
+              }
+            />
+            Show detailed parser failure notices during demos
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={demoPreferences.compactCandidateCards}
+              onChange={(event) =>
+                onPreferenceChange({ ...demoPreferences, compactCandidateCards: event.target.checked })
+              }
+            />
+            Prefer compact candidate cards in this browser
+          </label>
+          <button className="icon-text-button settings-save-button" type="button" onClick={onSavePreferences}>
+            Save demo preferences
+          </button>
+          <p>These preferences are stored in localStorage and do not change production system behavior.</p>
+        </div>
+        {user.role === "system_admin" ? (
+          <div>
+            <h2>Admin-only system settings</h2>
+            <p>Admin saves from this panel are written to the audit log as demo system preference updates.</p>
+            <label className="settings-check">
+              <input
+                type="checkbox"
+                checked={demoPreferences.adminReviewMode}
+                onChange={(event) =>
+                  onPreferenceChange({ ...demoPreferences, adminReviewMode: event.target.checked })
+                }
+              />
+              Mark this browser as using admin review mode for the demo
+            </label>
+            <p>No real SSO, production storage, or database configuration is changed from this page.</p>
+          </div>
+        ) : null}
+      </section>
+    </>
   );
 }
 
@@ -2153,10 +2685,282 @@ function AuditTable({
         <div className="audit-log-row" key={event.id}>
           <span>{new Date(event.createdAt).toLocaleString()}</span>
           <span>{event.action.replaceAll("_", " ")}</span>
-          <span>{event.actor}</span>
+          <span>
+            {event.actor}
+            {event.actorRole ? (
+              <em className="block text-[11px] uppercase tracking-wide text-subtle">
+                {event.actorRole.replace("_", " ")}
+              </em>
+            ) : null}
+          </span>
           <span className="status-chip">Recorded</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function AuditIntegrityBanner({ integrity }: { integrity: { ok: boolean; issues: number } }) {
+  if (integrity.ok) {
+    return (
+      <div
+        data-testid="audit-integrity-banner"
+        className="mb-3 rounded-lg border border-border bg-brand-light px-3 py-2 text-[13px] font-medium text-ink"
+      >
+        <ShieldCheck aria-hidden="true" className="inline-icon" /> Audit hash chain verified - no tampering detected.
+      </div>
+    );
+  }
+  return (
+    <div
+      data-testid="audit-integrity-banner"
+      className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[13px] font-semibold text-red-700"
+      role="alert"
+    >
+      <AlertTriangle aria-hidden="true" className="inline-icon" /> Audit chain integrity check failed
+      {integrity.issues > 0 ? ` (${integrity.issues} issue${integrity.issues === 1 ? "" : "s"})` : ""}.
+      Investigate before trusting recent events.
+    </div>
+  );
+}
+
+function AuditFilterToolbar({
+  filters,
+  onChange,
+  onApply,
+  isRefreshing,
+}: {
+  filters: { action: string; actor: string; entityId: string; startDate: string; endDate: string };
+  onChange: (next: { action: string; actor: string; entityId: string; startDate: string; endDate: string }) => void;
+  onApply: () => void;
+  isRefreshing: boolean;
+}) {
+  return (
+    <form
+      className="filter-toolbar mb-3"
+      aria-label="Audit log filters"
+      data-testid="audit-filter-toolbar"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onApply();
+      }}
+    >
+      <label>
+        Action
+        <input
+          value={filters.action}
+          onChange={(event) => onChange({ ...filters, action: event.target.value })}
+          placeholder="login"
+        />
+      </label>
+      <label>
+        Actor
+        <input
+          value={filters.actor}
+          onChange={(event) => onChange({ ...filters, actor: event.target.value })}
+          placeholder="admin@"
+        />
+      </label>
+      <label>
+        Entity ID
+        <input
+          value={filters.entityId}
+          onChange={(event) => onChange({ ...filters, entityId: event.target.value })}
+          placeholder="candidate-…"
+        />
+      </label>
+      <label>
+        From
+        <input
+          type="date"
+          value={filters.startDate}
+          onChange={(event) => onChange({ ...filters, startDate: event.target.value })}
+        />
+      </label>
+      <label>
+        To
+        <input
+          type="date"
+          value={filters.endDate}
+          onChange={(event) => onChange({ ...filters, endDate: event.target.value })}
+        />
+      </label>
+      <button className="icon-text-button" type="submit" disabled={isRefreshing}>
+        <Search aria-hidden="true" />
+        Apply filters
+      </button>
+    </form>
+  );
+}
+
+function AdminAlertsPanel({
+  alerts,
+  status,
+  isRefreshing,
+  onResolve,
+  onSeedDemo,
+  onRetry,
+}: {
+  alerts: AdminAlert[];
+  status: LoadStatus;
+  isRefreshing: boolean;
+  onResolve: (id: string) => void | Promise<void>;
+  onSeedDemo: () => void | Promise<void>;
+  onRetry: () => void;
+}) {
+  const openCount = alerts.filter((alert) => alert.status === "open").length;
+  return (
+    <section className="concept-panel" aria-labelledby="admin-alerts-heading" data-testid="admin-alerts-panel">
+      <div className="panel-heading">
+        <h2 id="admin-alerts-heading">Operational alerts</h2>
+        <span>
+          {status === "loading" ? "..." : status === "forbidden" ? "Admin only" : `${openCount} open`}
+        </span>
+      </div>
+      <p className="m-0 mb-3 text-[12px] leading-snug text-muted">
+        Storage, database, upload, and future sync failures land here. Future sync alerts are placeholder/demo
+        simulations until real integrations exist.
+      </p>
+      {status === "loading" ? <p className="list-placeholder">Loading alerts…</p> : null}
+      {status === "forbidden" ? (
+        <p className="list-placeholder">System administrator access required.</p>
+      ) : null}
+      {status === "error" ? (
+        <ErrorPanel
+          title="Could not load alerts"
+          text="The alert refresh failed. Try again in a moment."
+          onRetry={onRetry}
+        />
+      ) : null}
+      {status === "ready" && alerts.length === 0 ? (
+        <p className="list-placeholder">No operational alerts. Seed a demo placeholder if you want to demo the workflow.</p>
+      ) : null}
+      {status === "ready" && alerts.length > 0 ? (
+        <ul className="m-0 list-none space-y-2 p-0">
+          {alerts.map((alert) => (
+            <li
+              key={alert.id}
+              className="flex flex-col gap-1 rounded-lg border border-border bg-panel px-3 py-2 text-[13px]"
+              data-testid={`admin-alert-${alert.severity}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <strong className="font-semibold text-ink">{alert.message}</strong>
+                <span
+                  className={`status-chip ${alert.severity === "critical" ? "border-red-300 text-red-700" : ""}`}
+                >
+                  {alert.severity} · {alert.status}
+                </span>
+              </div>
+              <span className="text-muted">
+                {alert.source} · {new Date(alert.createdAt).toLocaleString()}
+                {alert.resolvedBy ? ` · resolved by ${alert.resolvedBy}` : ""}
+              </span>
+              {alert.status === "open" ? (
+                <div>
+                  <button
+                    type="button"
+                    className="icon-text-button"
+                    disabled={isRefreshing}
+                    onClick={() => void onResolve(alert.id)}
+                  >
+                    Mark resolved
+                  </button>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {status === "ready" ? (
+        <div className="mt-3">
+          <button
+            type="button"
+            className="icon-text-button"
+            disabled={isRefreshing}
+            onClick={() => void onSeedDemo()}
+          >
+            Add demo sync placeholder
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function LearningReportPanel({ report, status }: { report: LearningReport | null; status: LoadStatus }) {
+  return (
+    <section className="concept-panel" aria-labelledby="learning-report-heading" data-testid="learning-report-panel">
+      <div className="panel-heading">
+        <h2 id="learning-report-heading">L&amp;D skill-gap report</h2>
+        <span>
+          {status === "loading"
+            ? "..."
+            : status === "forbidden"
+              ? "L&D only"
+              : report
+                ? `${report.totalCandidates} candidates`
+                : "—"}
+        </span>
+      </div>
+      <p className="m-0 mb-3 text-[12px] leading-snug text-muted">
+        Aggregates missing skills from analyzed candidates by department, employee group, and role family. Visible to
+        learning &amp; development and system administrators only.
+      </p>
+      {status === "loading" ? <p className="list-placeholder">Building report…</p> : null}
+      {status === "forbidden" ? (
+        <p className="list-placeholder">Learning and development access required.</p>
+      ) : null}
+      {status === "error" ? (
+        <p className="error-message" role="alert">
+          Could not load the learning report. Try refreshing.
+        </p>
+      ) : null}
+      {status === "ready" && report ? (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <LearningReportColumn title="By department" groups={report.byDepartment} />
+          <LearningReportColumn title="By employee group" groups={report.byEmployeeGroup} />
+          <LearningReportColumn title="By role family" groups={report.byRoleFamily} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function LearningReportColumn({ title, groups }: { title: string; groups: LearningReportGroup[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="m-0 text-[13px] font-bold uppercase tracking-wide text-subtle">{title}</h3>
+      {groups.length === 0 ? (
+        <p className="list-placeholder">No data yet — analyze a few resumes to populate this view.</p>
+      ) : (
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          {groups.map((group) => (
+            <li
+              key={`${group.dimension}-${group.groupId}`}
+              className="rounded-lg border border-border bg-panel px-3 py-2 text-[13px]"
+              data-testid={`learning-report-group-${group.dimension}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <strong className="font-semibold text-ink">{group.groupName}</strong>
+                <span className="status-chip">{group.candidateCount} candidate{group.candidateCount === 1 ? "" : "s"}</span>
+              </div>
+              {group.topMissingSkills.length ? (
+                <ul className="mt-2 space-y-1 list-disc pl-4 text-muted">
+                  {group.topMissingSkills.map((skill) => (
+                    <li key={skill.skill}>
+                      <span className="text-ink">{skill.skill}</span> — {skill.affectedCandidates} affected ·{" "}
+                      <em>{skill.recommendation}</em>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-muted">No recurring gaps in the current sample.</p>
+              )}
+              <p className="mt-2 text-[12px] font-medium text-ink">{group.prioritizedRecommendation}</p>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

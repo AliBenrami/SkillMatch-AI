@@ -43,6 +43,13 @@
       "when": 1778020000000,
       "tag": "0005_candidate_learning_modules",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778030000000,
+      "tag": "0006_admin_alerts_and_audit_chain",
+      "breakpoints": true
     }
   ]
 }

@@ -558,6 +558,17 @@ textarea:disabled {
   height: 14px;
 }
 
+.danger-button {
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.danger-button:hover {
+  border-color: #fca5a5;
+  background: var(--red-bg);
+  color: #7f1d1d;
+}
+
 /* ─── Dashboard 3-col grid ───────────────────────────────────── */
 
 .concept-grid {
@@ -1662,6 +1673,14 @@ meter::-moz-meter-bar {
   line-height: 1.55;
 }
 
+.candidate-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .resume-download-link {
   font-size: 12px;
   font-weight: 600;
@@ -1811,6 +1830,72 @@ meter::-moz-meter-bar {
 .settings-grid span {
   font-size: 12.5px;
   text-transform: capitalize;
+}
+
+.settings-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.settings-check input {
+  min-height: 0;
+}
+
+.settings-save-button {
+  margin-top: 12px;
+}
+
+.workforce-report-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.workforce-skill-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workforce-skill-list li {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  padding: 12px;
+}
+
+.workforce-skill-list strong {
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.workforce-skill-list span,
+.workforce-skill-list em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.4;
 }
 
 .empty-panel {
@@ -2150,6 +2235,10 @@ meter::-moz-meter-bar {
   }
 
   .data-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workforce-skill-list {
     grid-template-columns: 1fr;
   }
 }

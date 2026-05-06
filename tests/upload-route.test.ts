@@ -159,6 +159,8 @@ describe("POST /api/upload", () => {
     expect(mockAnalyzeCandidateResume).toHaveBeenCalledTimes(1);
     expect(mockSaveCandidateBatch).toHaveBeenCalledWith({
       actor: "recruiter@skillmatch.demo",
+      actorRole: "recruiter",
+      actorName: "Recruiter",
       uploads: [
         {
           candidate,

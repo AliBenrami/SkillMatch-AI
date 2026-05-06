@@ -35,10 +35,26 @@ create table if not exists analyses (
 create table if not exists audit_events (
   id bigserial primary key,
   actor text not null,
+  actor_role text,
+  actor_name text,
   action text not null,
   entity_id text,
   details jsonb not null default '{}'::jsonb,
+  previous_hash text not null default '0000000000000000000000000000000000000000000000000000000000000000',
+  hash text,
   created_at timestamptz not null default now()
+);
+
+create table if not exists admin_alerts (
+  id uuid primary key,
+  source text not null,
+  severity text not null check (severity in ('info','warning','critical')),
+  status text not null default 'open' check (status in ('open','resolved')),
+  message text not null,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  resolved_by text
 );
 
 create table if not exists candidate_recommendations (
@@ -71,6 +87,11 @@ create table if not exists saved_target_roles (
 create index if not exists analyses_created_at_idx on analyses (created_at desc);
 create index if not exists analyses_target_role_idx on analyses (target_role_id);
 create index if not exists audit_events_created_at_idx on audit_events (created_at desc);
+create index if not exists audit_events_action_idx on audit_events (action);
+create index if not exists audit_events_actor_idx on audit_events (actor);
+create index if not exists audit_events_entity_id_idx on audit_events (entity_id);
+create index if not exists admin_alerts_status_idx on admin_alerts (status);
+create index if not exists admin_alerts_created_at_idx on admin_alerts (created_at desc);
 create index if not exists candidate_recommendations_created_at_idx on candidate_recommendations (created_at desc);
 create index if not exists candidate_recommendations_best_score_idx on candidate_recommendations (best_score desc);
 create index if not exists saved_target_roles_employee_idx on saved_target_roles (employee_email);

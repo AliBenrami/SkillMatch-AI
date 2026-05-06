@@ -164,6 +164,45 @@ test("accepts PDF when the browser reports application/octet-stream", async ({ p
   await expect(page.getByRole("button", { name: /Morgan Rivera/i }).first()).toBeVisible();
 });
 
+test("accepts a resume dropped on the upload zone via drag-and-drop", async ({ page }) => {
+  const notice = page.locator(".notice");
+  const dropZone = page.getByTestId("resume-drop-zone");
+  const buffer = await fs.promises.readFile(resumePath);
+
+  await page.context().clearCookies();
+  await signInDemoRecruiter(page);
+
+  await expect(dropZone).toBeVisible();
+
+  const dataTransfer = await page.evaluateHandle(
+    ({ data, name, type }) => {
+      const transfer = new DataTransfer();
+      const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      const file = new File([bytes], name, { type });
+      transfer.items.add(file);
+      return transfer;
+    },
+    {
+      data: buffer.toString("base64"),
+      name: "alex-smith-sde-resume.pdf",
+      type: "application/pdf",
+    },
+  );
+
+  await dropZone.dispatchEvent("dragenter", { dataTransfer });
+  await dropZone.dispatchEvent("dragover", { dataTransfer });
+  await dropZone.dispatchEvent("drop", { dataTransfer });
+
+  await expect(page.getByText("alex-smith-sde-resume.pdf")).toBeVisible();
+  await expect(page.getByText(/^1 selected$/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /run skillmatch analysis/i })).toBeEnabled();
+
+  await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
+  await expect(notice).toHaveText(/Processed 1 resume/);
+  await expect(page.getByRole("button", { name: /Alex Smith Software/ }).first()).toBeVisible();
+  await expect(page.getByText("Recommended Positions")).toBeVisible();
+});
+
 test("keeps failed upload state visible after processing", async ({ page }) => {
   const notice = page.locator(".notice");
 

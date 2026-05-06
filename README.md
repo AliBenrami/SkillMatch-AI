@@ -82,7 +82,8 @@ You can also paste the contents of `db/schema.sql` into the Neon SQL editor for 
 The app is designed to run without external services during local development:
 
 - If `DATABASE_URL` is not set, `lib/db.ts` stores analyses, candidate recommendations, and audit events in memory. Data resets when the dev server restarts.
-- `GET /api/health` reports whether the app is using memory fallback or a configured Postgres database, and returns `503` when a database is configured but the expected tables have not been created yet.
+- `GET /api/health` reports whether the app is using memory fallback or a configured Postgres database, includes local vs R2 resume storage mode, and returns `503` when a database is configured but the expected tables have not been created yet.
+- `DELETE /api/candidates/[id]` removes a saved candidate recommendation for recruiter, hiring manager, and system admin roles. Local demo resume bytes are deleted from the in-memory object map; configured R2 objects are deleted when their key can be resolved.
 - Signup requires `DATABASE_URL`; created accounts are stored in the `users` table. When no database is configured, sign in with demo or `AUTH_USERS_JSON` users instead.
 - If any required R2 setting is missing, `lib/storage.ts` stores uploaded resume bytes in an in-memory map and returns `local://...` URLs. Those files are not persisted across server restarts.
 - If `AUTH_USERS_JSON` is not set, demo users are loaded from `lib/auth-model.ts`.

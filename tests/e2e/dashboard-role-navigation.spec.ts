@@ -22,28 +22,28 @@ async function expectNavButtonAbsentFromDom(page: Page, name: string) {
   await expect(navButtonInDom(page, name)).toHaveCount(0);
 }
 
-test("recruiter navigation hides admin-only audit and learning sections", async ({ page }) => {
+test("recruiter navigation hides L&D workforce, admin-only audit, and learning sections", async ({ page }) => {
   await page.context().clearCookies();
   await signInDemoRecruiter(page);
 
   await expectNavButtonVisible(page, "Dashboard");
   await expectNavButtonVisible(page, "Analyses");
-  await expectNavButtonVisible(page, "Workforce");
   await expectNavButtonVisible(page, "Settings");
   await expectNavButtonAbsentFromDom(page, "Learning");
+  await expectNavButtonAbsentFromDom(page, "Workforce");
   await expectNavButtonAbsentFromDom(page, "Audit Log");
   await expect(sections(page).locator("button:disabled")).toHaveCount(0);
 });
 
-test("learning development navigation shows learning sections without admin audit controls", async ({ page }) => {
+test("learning development navigation shows learning and workforce sections without admin audit controls", async ({ page }) => {
   await page.context().clearCookies();
   await signInDemoLearningDevelopment(page);
 
   await expectNavButtonVisible(page, "Dashboard");
   await expectNavButtonVisible(page, "Analyses");
   await expectNavButtonVisible(page, "Learning");
+  await expectNavButtonVisible(page, "Workforce");
   await expectNavButtonVisible(page, "Settings");
-  await expectNavButtonAbsentFromDom(page, "Workforce");
   await expectNavButtonAbsentFromDom(page, "Audit Log");
   await expect(sections(page).locator("button:disabled")).toHaveCount(0);
 });

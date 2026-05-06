@@ -16,6 +16,8 @@ export async function POST(request: Request) {
     await setSessionUser(user);
     await appendAuditEvent({
       actor: user.email,
+      actorRole: user.role,
+      actorName: user.name,
       action: "signup",
       details: { role: user.role }
     });

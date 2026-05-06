@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import {
   buildCandidateDuplicateIdentity,
+  recordAdminAlert,
   saveAnalysis,
   saveCandidateBatch,
   type CandidateDuplicateWarning,
@@ -17,11 +18,7 @@ import {
 import { isAllowedResumeUpload } from "@/lib/resume-upload-validation";
 import { serverErrorResponse } from "@/lib/server-api-error";
 import { storeResumeFile } from "@/lib/storage";
-
-const maxFiles = 12;
-const maxRawUploads = 4;
-const maxFileSize = 8 * 1024 * 1024;
-const maxZipFileSize = 25 * 1024 * 1024;
+import { resumeUploadConfig } from "@/lib/upload-config";
 
 export async function POST(request: Request) {
   try {
@@ -39,13 +36,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Upload at least one PDF, DOCX, TXT, or ZIP file." }, { status: 400 });
   }
 
-  if (rawFiles.length > maxRawUploads && rawFiles.some((file) => file.name.toLowerCase().endsWith(".zip"))) {
-    return NextResponse.json({ error: `Upload ${maxRawUploads} zip files or fewer at a time.` }, { status: 400 });
+  if (
+    rawFiles.length > resumeUploadConfig.maxRawZipUploadCount &&
+    rawFiles.some((file) => file.name.toLowerCase().endsWith(".zip"))
+  ) {
+    return NextResponse.json(
+      { error: `Upload ${resumeUploadConfig.maxRawZipUploadCount} zip files or fewer at a time.` },
+      { status: 400 }
+    );
   }
 
   for (const file of rawFiles) {
-    if (file.name.toLowerCase().endsWith(".zip") && file.size > maxZipFileSize) {
-      return NextResponse.json({ error: "Zip file exceeds 25 MB limit." }, { status: 400 });
+    if (file.name.toLowerCase().endsWith(".zip") && file.size > resumeUploadConfig.maxZipFileSizeBytes) {
+      return NextResponse.json(
+        { error: `Zip file exceeds ${resumeUploadConfig.maxZipFileSizeLabel} limit.` },
+        { status: 400 }
+      );
     }
   }
 
@@ -57,8 +63,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Upload at least one supported resume file.", failures }, { status: 400 });
   }
 
-  if (files.length > maxFiles) {
-    return NextResponse.json({ error: `Upload ${maxFiles} resumes or fewer at a time, including files inside zips.` }, { status: 400 });
+  if (files.length > resumeUploadConfig.maxBatchResumeCount) {
+    return NextResponse.json(
+      {
+        error: `Upload ${resumeUploadConfig.maxBatchResumeCount} resumes or fewer at a time, including files inside zips.`
+      },
+      { status: 400 }
+    );
   }
 
   const candidates: CandidateAnalysis[] = [];
@@ -74,8 +85,8 @@ export async function POST(request: Request) {
 
   for (const file of files) {
     try {
-      if (file.size > maxFileSize) {
-        throw new Error("File exceeds 8 MB limit.");
+      if (file.size > resumeUploadConfig.maxResumeFileSizeBytes) {
+        throw new Error(`File exceeds ${resumeUploadConfig.maxResumeFileSizeLabel} limit.`);
       }
 
       if (!isAllowedResumeUpload(file.name, file.type)) {
@@ -122,11 +133,25 @@ export async function POST(request: Request) {
       seenDuplicateKeys.add(duplicateKey);
       seenClusterKeys.add(clusterKey);
 
-      const stored = await storeResumeFile({
-        fileName: file.name,
-        contentType: file.type || "application/octet-stream",
-        bytes: parsed.bytes,
-      });
+      let stored;
+      try {
+        stored = await storeResumeFile({
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+          bytes: parsed.bytes,
+        });
+      } catch (storageError) {
+        const message = storageError instanceof Error ? storageError.message : "Storage upload failed.";
+        await recordAdminAlert({
+          source: "storage",
+          severity: "warning",
+          message: `Resume storage failed for ${file.name}: ${message}`,
+          details: { fileName: file.name, actor: user.email },
+        }).catch((alertError) => {
+          console.error("Unable to record storage alert", alertError);
+        });
+        throw storageError;
+      }
       const candidate = analyzeCandidateResume({
         fileName: file.name,
         resumeText: parsed.text,
@@ -135,10 +160,24 @@ export async function POST(request: Request) {
       candidates.push(candidate);
       uploadOutputs.push({ candidate, resumeText: parsed.text, duplicateKey, clusterKey });
     } catch (error) {
+      const reason = error instanceof Error ? error.message : "Unknown parsing failure";
       failures.push({
         fileName: file.name,
-        error: error instanceof Error ? error.message : "Unknown parsing failure",
+        error: reason,
       });
+      if (
+        reason !== `File exceeds ${resumeUploadConfig.maxResumeFileSizeLabel} limit.` &&
+        reason !== "Only PDF, DOCX, or TXT resumes are supported."
+      ) {
+        await recordAdminAlert({
+          source: "upload",
+          severity: "warning",
+          message: `Resume parsing failed for ${file.name}: ${reason}`,
+          details: { fileName: file.name, actor: user.email },
+        }).catch((alertError) => {
+          console.error("Unable to record upload alert", alertError);
+        });
+      }
     }
   }
 
@@ -166,7 +205,12 @@ export async function POST(request: Request) {
   let responseCandidates = candidates;
 
   try {
-    const saved = await saveCandidateBatch({ actor: user.email, uploads: uploadOutputs });
+    const saved = await saveCandidateBatch({
+      actor: user.email,
+      actorRole: user.role,
+      actorName: user.name,
+      uploads: uploadOutputs,
+    });
     responseCandidates = saved.candidates;
     duplicates.push(...saved.duplicates);
 
@@ -190,6 +234,14 @@ export async function POST(request: Request) {
   } catch (error) {
     persistError =
       error instanceof Error ? error.message : "Failed to save resumes.";
+    await recordAdminAlert({
+      source: "database",
+      severity: "critical",
+      message: `Resume persistence failed: ${persistError}`,
+      details: { actor: user.email, candidateCount: candidates.length },
+    }).catch((alertError) => {
+      console.error("Unable to record database alert", alertError);
+    });
   }
 
   const body: {

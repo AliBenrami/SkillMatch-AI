@@ -50,12 +50,44 @@ export const auditEvents = pgTable(
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
     actor: text("actor").notNull(),
+    actorRole: text("actor_role"),
+    actorName: text("actor_name"),
     action: text("action").notNull(),
     entityId: text("entity_id"),
     details: jsonb("details").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    previousHash: text("previous_hash")
+      .notNull()
+      .default(sql`'0000000000000000000000000000000000000000000000000000000000000000'`),
+    hash: text("hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
-  (table) => [index("audit_events_created_at_idx").on(table.createdAt.desc())]
+  (table) => [
+    index("audit_events_created_at_idx").on(table.createdAt.desc()),
+    index("audit_events_action_idx").on(table.action),
+    index("audit_events_actor_idx").on(table.actor),
+    index("audit_events_entity_id_idx").on(table.entityId)
+  ]
+);
+
+export const adminAlerts = pgTable(
+  "admin_alerts",
+  {
+    id: uuid("id").primaryKey(),
+    source: text("source").notNull(),
+    severity: text("severity").notNull(),
+    status: text("status").notNull().default("open"),
+    message: text("message").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: text("resolved_by")
+  },
+  (table) => [
+    index("admin_alerts_status_idx").on(table.status),
+    index("admin_alerts_created_at_idx").on(table.createdAt.desc()),
+    check("admin_alerts_severity_check", sql`${table.severity} in ('info','warning','critical')`),
+    check("admin_alerts_status_check", sql`${table.status} in ('open','resolved')`)
+  ]
 );
 
 export const candidateRecommendations = pgTable(

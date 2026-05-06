@@ -17,6 +17,8 @@ export async function POST(request: Request) {
     if (error === "Malformed JSON body.") {
       await appendAuditEvent({
         actor: user.email,
+        actorRole: user.role,
+        actorName: user.name,
         action: "recruiter_override",
         details: { reason: "malformed_json" }
       });
@@ -27,6 +29,8 @@ export async function POST(request: Request) {
 
   await appendAuditEvent({
     actor: user.email,
+    actorRole: user.role,
+    actorName: user.name,
     action: "recruiter_override",
     entityId: data.candidateId,
     details: {

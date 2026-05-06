@@ -100,6 +100,8 @@ describe("API JSON body handling", () => {
     await expect(response.json()).resolves.toEqual({ error: "Malformed JSON body." });
     expect(mockAppendAuditEvent).toHaveBeenCalledWith({
       actor: "recruiter@skillmatch.demo",
+      actorRole: "recruiter",
+      actorName: "Priya Recruiter",
       action: "recruiter_override",
       details: { reason: "malformed_json" }
     });

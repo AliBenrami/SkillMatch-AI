@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
-import { getDatabaseConfig } from "@/lib/env";
+import { getDatabaseConfig, getStorageConfig } from "@/lib/env";
 
 const requiredTables = [
   "users",
@@ -18,6 +18,30 @@ const requiredColumns = [
 
 export const dynamic = "force-dynamic";
 
+function getStorageHealth() {
+  try {
+    const storage = getStorageConfig();
+    return {
+      configured: storage.provider === "r2",
+      provider: storage.provider,
+      mode: storage.provider === "r2" ? "r2" : "local_memory",
+      persistent: storage.provider === "r2",
+      publicBaseUrlConfigured: storage.provider === "r2" ? Boolean(storage.publicBaseUrl) : false,
+      objectDeletionSupported: true,
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      provider: "unknown",
+      mode: "degraded",
+      persistent: false,
+      publicBaseUrlConfigured: false,
+      objectDeletionSupported: false,
+      error: error instanceof Error ? error.message : "Storage health check failed.",
+    };
+  }
+}
+
 function createMemoryHealthResponse() {
   return NextResponse.json({
     status: "ok",
@@ -27,7 +51,8 @@ function createMemoryHealthResponse() {
       schemaReady: false,
       missingTables: requiredTables,
       missingColumns: [] as string[]
-    }
+    },
+    storage: getStorageHealth()
   });
 }
 
@@ -75,7 +100,8 @@ export async function GET() {
           schemaReady,
           missingTables,
           missingColumns
-        }
+        },
+        storage: getStorageHealth()
       },
       { status: schemaReady ? 200 : 503 }
     );
@@ -90,6 +116,7 @@ export async function GET() {
           missingTables: [...requiredTables],
           missingColumns: [] as string[]
         },
+        storage: getStorageHealth(),
         error: error instanceof Error ? error.message : "Database health check failed."
       },
       { status: 503 }

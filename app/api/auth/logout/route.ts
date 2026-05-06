@@ -7,6 +7,8 @@ export async function POST() {
   await clearSessionUser();
   await appendAuditEvent({
     actor: user?.email ?? "unknown",
+    actorRole: user?.role ?? null,
+    actorName: user?.name ?? null,
     action: "logout",
     details: {}
   });

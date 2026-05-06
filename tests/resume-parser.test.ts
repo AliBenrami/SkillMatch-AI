@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import PDFDocument from "pdfkit";
 import { describe, expect, it } from "vitest";
-import { extractResumeText } from "@/lib/resume-parser";
+import { extractResumeText, normalizeExtractedResumeText } from "@/lib/resume-parser";
 
 function makeFile(bytes: Buffer, name: string, type: string) {
   return new File([bytes], name, { type });
@@ -27,6 +27,11 @@ async function createPdf(lines: string[]) {
   });
 }
 
+async function createImageOnlyPdf() {
+  const blankPdf = await createPdf([""]);
+  return Buffer.concat([blankPdf, Buffer.from("\n% scanned page marker /Subtype /Image\n")]);
+}
+
 describe("resume parser", () => {
   it("extracts readable resume text from a real PDF fixture", async () => {
     const bytes = await readFile("tests/fixtures/alex-smith-sde-resume.pdf");
@@ -40,8 +45,13 @@ describe("resume parser", () => {
   it("extracts text from generated PDFs without relying on raw stream token regexes", async () => {
     const bytes = await createPdf([
       "Priya Raman",
-      "Backend engineer with TypeScript, Node, AWS, PostgreSQL, Docker, and CI/CD experience.",
-      "Built REST APIs and search pipelines for resume matching workflows."
+      "Backend engineer with 6 years of TypeScript, Node, AWS, PostgreSQL, Docker, and CI/CD experience.",
+      "Experience",
+      "Built REST APIs and search pipelines for resume matching workflows.",
+      "Skills",
+      "TypeScript, Node, AWS, PostgreSQL, Docker, CI/CD, REST API, system design.",
+      "Education",
+      "Bachelor of Science in Computer Science"
     ]);
 
     const result = await extractResumeText(makeFile(bytes, "priya-raman.pdf", "application/pdf"));
@@ -51,11 +61,39 @@ describe("resume parser", () => {
     expect(result.text).toContain("REST APIs and search pipelines");
   });
 
-  it("rejects PDFs that do not contain extractable text", async () => {
+  it("rejects blank PDFs with a clear message", async () => {
     const blankPdf = await createPdf([""]);
 
     await expect(extractResumeText(makeFile(blankPdf, "blank.pdf", "application/pdf"))).rejects.toThrow(
-      "No readable text was found"
+      "appears blank"
+    );
+  });
+
+  it("rejects image-only PDFs with a scanned-PDF MVP message", async () => {
+    const imageOnlyPdf = await createImageOnlyPdf();
+
+    await expect(extractResumeText(makeFile(imageOnlyPdf, "scan.pdf", "application/pdf"))).rejects.toThrow(
+      "Image-only or scanned PDF resumes are not supported in this MVP"
+    );
+  });
+
+  it("rejects corrupt PDFs with a supported/corrupt message", async () => {
+    await expect(
+      extractResumeText(makeFile(Buffer.from("not actually a pdf"), "corrupt.pdf", "application/pdf"))
+    ).rejects.toThrow("corrupt, encrypted, or an unsupported PDF");
+  });
+
+  it("normalizes whitespace while preserving useful line breaks", () => {
+    expect(normalizeExtractedResumeText(" Alex   Smith \r\n\r\n Skills:   Java,    AWS \n\n\n Experience:  5 years ")).toBe(
+      "Alex Smith\n\nSkills: Java, AWS\n\nExperience: 5 years"
+    );
+  });
+
+  it("rejects PDFs with too little usable text", async () => {
+    const shortPdf = await createPdf(["Hi"]);
+
+    await expect(extractResumeText(makeFile(shortPdf, "short.pdf", "application/pdf"))).rejects.toThrow(
+      "too little usable resume text"
     );
   });
 });

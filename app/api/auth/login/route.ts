@@ -6,6 +6,8 @@ import { loginRequestSchema, parseJsonRequestBody } from "@/lib/validation";
 
 async function appendLoginAuditEvent(input: {
   actor: string;
+  actorRole?: string | null;
+  actorName?: string | null;
   action: "failed_login" | "login";
   details: Record<string, unknown>;
 }) {
@@ -46,6 +48,8 @@ export async function POST(request: Request) {
     await setSessionUser(user);
     await appendLoginAuditEvent({
       actor: user.email,
+      actorRole: user.role,
+      actorName: user.name,
       action: "login",
       details: { role: user.role }
     });
