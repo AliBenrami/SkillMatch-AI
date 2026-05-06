@@ -92,6 +92,35 @@ test("requires credential sign-in, uploads a PDF resume, and ranks positions", a
   await expect(page.locator(".skill-gap-chart").getByText("system design")).toBeVisible();
 });
 
+test("updates dashboard match context when the target role changes after analysis", async ({ page }) => {
+  const notice = page.locator(".notice");
+  const scoreRing = page.locator(".overview-panel [aria-label^='Match score']");
+  const skillGapChart = page.locator(".skill-gap-chart");
+  const targetRole = page.getByRole("combobox", { name: /target role/i });
+
+  await page.context().clearCookies();
+  await signInDemoRecruiter(page);
+
+  await pickDashboardResume(page, resumePath);
+  await page.getByRole("button", { name: /run skillmatch analysis/i }).click();
+  await expect(notice).toHaveText(/Processed 1 resume/);
+
+  await expect(targetRole).toHaveValue("sde-ii");
+  await expect(page.getByLabel("Software Development Engineer II skill coverage chart")).toBeVisible();
+  await expect(skillGapChart.getByText("system design")).toBeVisible();
+  await expect(scoreRing).toHaveAttribute("aria-label", /Match score \d+%/);
+  const originalScore = await scoreRing.getAttribute("aria-label");
+
+  await targetRole.selectOption({ label: "Cloud Support Associate" });
+
+  await expect(targetRole).toHaveValue("cloud-support");
+  await expect(page.getByText("Job Family: Cloud Operations")).toBeVisible();
+  await expect(page.getByLabel("Cloud Support Associate skill coverage chart")).toBeVisible();
+  await expect(skillGapChart.getByText("customer support")).toBeVisible();
+  await expect(skillGapChart.getByText("system design")).toHaveCount(0);
+  await expect(scoreRing).not.toHaveAttribute("aria-label", originalScore ?? "");
+});
+
 test("shows duplicate advisory when uploading the same resume twice in sequence", async ({ page }) => {
   test.skip(
     !hasMemoryIsolation,
