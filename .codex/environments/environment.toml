@@ -3,7 +3,4 @@ version = 1
 name = "SkillMatch-AI"
 
 [setup]
-script = '''
-cp "C:\Users\Artemis\Documents\Projects\SkillMatch-AI\.env" "./"
-cp -r "C:\Users\Artemis\Documents\Projects\SkillMatch-AI\docs" "./docs"
-'''
+script = "cp \"/Users/alibenrami/Documents/SkillMatch-AI/.env\" \"./\""

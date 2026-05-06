@@ -669,19 +669,6 @@ textarea:disabled {
   font-weight: 600;
 }
 
-.ai-insight-panel .panel-heading h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.inline-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--brand-dark);
-  flex-shrink: 0;
-}
-
 .rail-recommendation-panel {
   display: grid;
   gap: 10px;
@@ -696,45 +683,6 @@ textarea:disabled {
 
 .rail-recommendation-panel .recommendation-list li {
   min-height: 42px;
-}
-
-.ai-insight-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  font-size: 13px;
-  color: var(--ink);
-  line-height: 1.45;
-}
-
-.ai-insight-summary {
-  margin: 0;
-  color: var(--muted);
-}
-
-.ai-insight-columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-
-@media (max-width: 1100px) {
-  .ai-insight-columns {
-    grid-template-columns: 1fr;
-  }
-}
-
-.ai-insight-body ul {
-  margin: 6px 0 0;
-  padding-left: 18px;
-}
-
-.ai-insight-body li {
-  margin-bottom: 4px;
-}
-
-.follow-up-list {
-  list-style: disc;
 }
 
 /* ─── Upload panel ───────────────────────────────────────────── */
@@ -1145,164 +1093,6 @@ textarea:disabled {
   font-size: 12.5px;
   line-height: 1.5;
   text-align: center;
-}
-
-.dashboard-stats-panel {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  border-top: 1px solid var(--border);
-  padding-top: 14px;
-}
-
-.role-distribution-card {
-  display: grid;
-  grid-column: 1 / -1;
-  gap: 8px;
-}
-
-.dashboard-stat-card,
-.role-distribution-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel-soft);
-  padding: 13px 14px;
-}
-
-.dashboard-stat-card {
-  display: grid;
-  align-content: center;
-  gap: 5px;
-  min-height: 96px;
-}
-
-.dashboard-stat-card span,
-.role-distribution-card > span {
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 700;
-}
-
-.dashboard-stat-card strong {
-  color: var(--ink);
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -1px;
-}
-
-.role-distribution-card ul {
-  display: grid;
-  gap: 7px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.role-distribution-card li {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.9fr) minmax(80px, 1fr) 22px;
-  gap: 8px;
-  align-items: center;
-}
-
-.role-distribution-card small {
-  overflow: hidden;
-  color: var(--ink);
-  font-size: 11.5px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.role-distribution-card div {
-  height: 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--border);
-}
-
-.role-distribution-card i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--brand);
-}
-
-.role-distribution-card b {
-  color: var(--muted);
-  font-size: 11.5px;
-  text-align: right;
-}
-
-.role-distribution-card p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12.5px;
-}
-
-.dashboard-gap-panel {
-  display: grid;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, #fafafa 0%, var(--panel-soft) 100%);
-  padding: 16px;
-}
-
-.dashboard-gap-panel .panel-heading {
-  margin-bottom: 0;
-  padding: 0;
-}
-
-.dashboard-gap-list {
-  display: grid;
-  gap: 7px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.dashboard-gap-list li {
-  display: grid;
-  grid-template-columns: minmax(112px, 0.8fr) minmax(90px, 1fr) 24px;
-  gap: 8px;
-  align-items: center;
-  min-height: 28px;
-  border-bottom: 1px solid var(--border);
-}
-
-.dashboard-gap-list li:last-child {
-  border-bottom: 0;
-}
-
-.dashboard-gap-skill {
-  overflow: hidden;
-  color: var(--ink);
-  font-size: 11.5px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dashboard-gap-meter {
-  height: 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--border);
-}
-
-.dashboard-gap-meter span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: #f97316;
-}
-
-.dashboard-gap-list strong {
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 700;
-  text-align: right;
 }
 
 /* ─── Skill gap chart ────────────────────────────────────────── */
@@ -2612,7 +2402,6 @@ meter::-moz-meter-bar {
   .concept-grid,
   .bottom-grid,
   .data-grid,
-  .dashboard-stats-panel,
   .learning-layout,
   .learning-grid,
   .metric-grid,
@@ -2702,7 +2491,6 @@ meter::-moz-meter-bar {
   .brand-block,
   .overview-content,
   .overview-summary,
-  .dashboard-stats-panel,
   .audit-log-row,
   .filter-toolbar,
   .learning-assignment-summary,

@@ -20,7 +20,6 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Target,
   Trash2,
   UploadCloud,
@@ -382,36 +381,6 @@ export default function Dashboard({
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8);
-  }, [candidates]);
-
-  const dashboardStats = useMemo(() => {
-    const roleCounts = new Map<string, number>();
-    let scoreTotal = 0;
-    let scoreCount = 0;
-    let assignedModules = 0;
-
-    candidates.forEach((candidate) => {
-      const bestRole = candidate.topPositions[0];
-      if (bestRole) {
-        roleCounts.set(
-          bestRole.role.title,
-          (roleCounts.get(bestRole.role.title) ?? 0) + 1,
-        );
-        scoreTotal += bestRole.score;
-        scoreCount += 1;
-      }
-      assignedModules += candidate.assignedLearningModules?.length ?? 0;
-    });
-
-    return {
-      resumeCount: candidates.length,
-      averageMatch: scoreCount ? Math.round(scoreTotal / scoreCount) : 0,
-      assignedModules,
-      activeRoleFamilies: roles.length,
-      roleDistribution: Array.from(roleCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4),
-    };
   }, [candidates]);
 
   const workforceGapMeterMax = Math.max(files.length, candidates.length, 5);
@@ -1282,8 +1251,6 @@ export default function Dashboard({
                       <ReadinessSignals result={selectedResult} />
                       <GapList gaps={missingSkills.slice(0, 8)} />
                     </div>
-                    <DashboardStatsPanel stats={dashboardStats} />
-                    <DashboardGapPanel gaps={workforceGaps} />
                     <RoleSkillGapChart
                       candidateName={selectedCandidate?.candidateName}
                       items={skillGapChartItems}
@@ -1306,7 +1273,6 @@ export default function Dashboard({
                       selectView("learning");
                     }}
                   />
-                  <AiInsightPanel insight={selectedCandidate?.aiInsight ?? null} />
                   <RecentCandidates
                     candidates={candidates}
                     onSelect={setSelectedCandidateId}
@@ -2189,104 +2155,6 @@ function ReadinessSignals({
   );
 }
 
-function DashboardStatsPanel({
-  stats,
-}: {
-  stats: {
-    resumeCount: number;
-    averageMatch: number;
-    assignedModules: number;
-    activeRoleFamilies: number;
-    roleDistribution: Array<[string, number]>;
-  };
-}) {
-  const maxRoleCount = Math.max(
-    ...stats.roleDistribution.map(([, count]) => count),
-    1,
-  );
-
-  return (
-    <section
-      className="dashboard-stats-panel"
-      aria-label="Dashboard statistics"
-    >
-      <div className="dashboard-stat-card">
-        <span>Resumes analyzed</span>
-        <strong>{stats.resumeCount}</strong>
-      </div>
-      <div className="dashboard-stat-card">
-        <span>Average top match</span>
-        <strong>{stats.resumeCount ? `${stats.averageMatch}%` : "—"}</strong>
-      </div>
-      <div className="dashboard-stat-card">
-        <span>Assigned modules</span>
-        <strong>{stats.assignedModules}</strong>
-      </div>
-      <div className="dashboard-stat-card">
-        <span>Role families</span>
-        <strong>{stats.activeRoleFamilies}</strong>
-      </div>
-      <div className="role-distribution-card">
-        <span>Recommended role mix</span>
-        {stats.roleDistribution.length ? (
-          <ul>
-            {stats.roleDistribution.map(([roleTitle, count]) => (
-              <li key={roleTitle}>
-                <small>{roleTitle}</small>
-                <div aria-hidden="true">
-                  <i
-                    style={{
-                      width: `${Math.max(8, (count / maxRoleCount) * 100)}%`,
-                    }}
-                  />
-                </div>
-                <b>{count}</b>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No analyzed resumes yet.</p>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function DashboardGapPanel({ gaps }: { gaps: Array<[string, number]> }) {
-  const maxGapCount = Math.max(...gaps.map(([, count]) => count), 1);
-
-  return (
-    <section
-      className="dashboard-gap-panel"
-      aria-labelledby="dashboard-gap-title"
-    >
-      <div className="panel-heading">
-        <h3 id="dashboard-gap-title">Top Workforce Gaps</h3>
-        <span>{gaps.length ? "Across resumes" : "No gap data"}</span>
-      </div>
-      {gaps.length ? (
-        <ul className="dashboard-gap-list">
-          {gaps.slice(0, 5).map(([skill, count]) => (
-            <li key={skill}>
-              <span className="dashboard-gap-skill">{skill}</span>
-              <span className="dashboard-gap-meter" aria-hidden="true">
-                <span
-                  style={{
-                    width: `${Math.max(8, (count / maxGapCount) * 100)}%`,
-                  }}
-                />
-              </span>
-              <strong>{count}</strong>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="chart-caption">No analyzed resumes yet.</p>
-      )}
-    </section>
-  );
-}
-
 function RoleSkillGapChart({
   candidateName,
   items,
@@ -2708,67 +2576,6 @@ function SavedRoleProgress({
           role for progress.
         </p>
       ) : null}
-    </section>
-  );
-}
-
-function AiInsightPanel({
-  insight,
-}: {
-  insight: CandidateAnalysis["aiInsight"];
-}) {
-  return (
-    <section className="concept-panel ai-insight-panel">
-      <div className="panel-heading">
-        <h2>
-          <Sparkles aria-hidden="true" className="inline-icon" />
-          AI resume review
-        </h2>
-        <span>Advisory</span>
-      </div>
-      {insight ? (
-        <div className="ai-insight-body">
-          <p className="ai-insight-summary">{insight.summary}</p>
-          <div className="ai-insight-columns">
-            <div>
-              <h3>Strengths</h3>
-              <ul>
-                {insight.strengths.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h3>Development areas</h3>
-              <ul>
-                {insight.developmentAreas.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <div>
-            <h3>Role fit</h3>
-            <p>{insight.roleFitNotes}</p>
-          </div>
-          {insight.followUpQuestions.length ? (
-            <div>
-              <h3>Follow-up questions</h3>
-              <ul className="follow-up-list">
-                {insight.followUpQuestions.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <p className="list-placeholder">
-          When optional AI resume review is enabled for your workspace, a
-          structured narrative appears after each upload. Skill matching above
-          still runs without it.
-        </p>
-      )}
     </section>
   );
 }

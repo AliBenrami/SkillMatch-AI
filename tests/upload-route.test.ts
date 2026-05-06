@@ -100,7 +100,6 @@ function createCandidate(id: string, fileName: string, candidateName = "Alex Smi
         rank: 1
       }
     ],
-    aiInsight: null,
     createdAt: "2026-05-03T00:00:00.000Z"
   } as unknown as CandidateAnalysis;
 }

@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { analyses, auditEvents, candidateRecommendations, savedTargetRoles } from "@/db/schema";
 import { getDatabase } from "./database";
+import { withNeonRetry } from "./neon-retry";
 import { matchingConfig } from "./seed-data";
 import type { CandidateAnalysis, CandidatePositionRecommendation, SkillMatchResult } from "./skillmatch";
 
@@ -458,7 +459,7 @@ export async function saveCandidateBatch(input: {
       storageUrl: upload.candidate.storageUrl,
       structuredResume: upload.candidate.structured,
       topPositions: upload.candidate.topPositions,
-      aiInsight: upload.candidate.aiInsight,
+      aiInsight: null,
       assignedLearningModules: upload.candidate.assignedLearningModules,
       bestRoleTitle: best?.role.title ?? "No match",
       bestScore
@@ -492,7 +493,6 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
       storageUrl: candidateRecommendations.storageUrl,
       structured: candidateRecommendations.structuredResume,
       topPositions: candidateRecommendations.topPositions,
-      aiInsight: candidateRecommendations.aiInsight,
       assignedLearningModules: candidateRecommendations.assignedLearningModules,
       createdAt: candidateRecommendations.createdAt
     })
@@ -507,7 +507,6 @@ export async function listCandidateRecommendations(filters: CandidateRecommendat
     storageUrl: row.storageUrl,
     structured: row.structured as CandidateAnalysis["structured"],
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
-    aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
     assignedLearningModules: row.assignedLearningModules as string[],
     createdAt: row.createdAt.toISOString()
   } as CandidateAnalysis));
@@ -550,7 +549,6 @@ export async function assignCandidateLearningModules(input: {
       storageUrl: candidateRecommendations.storageUrl,
       structured: candidateRecommendations.structuredResume,
       topPositions: candidateRecommendations.topPositions,
-      aiInsight: candidateRecommendations.aiInsight,
       assignedLearningModules: candidateRecommendations.assignedLearningModules,
       createdAt: candidateRecommendations.createdAt
     })
@@ -582,7 +580,6 @@ export async function assignCandidateLearningModules(input: {
     storageUrl: row.storageUrl,
     structured: row.structured as CandidateAnalysis["structured"],
     topPositions: row.topPositions as CandidateAnalysis["topPositions"],
-    aiInsight: (row.aiInsight ?? null) as CandidateAnalysis["aiInsight"],
     assignedLearningModules,
     createdAt: row.createdAt.toISOString()
   } as CandidateAnalysis);
@@ -624,18 +621,20 @@ export async function listAuditEvents() {
     return memoryAuditEvents.slice(0, 20);
   }
 
-  const rows = await db
-    .select({
-      id: auditEvents.id,
-      actor: auditEvents.actor,
-      action: auditEvents.action,
-      entityId: auditEvents.entityId,
-      details: auditEvents.details,
-      createdAt: auditEvents.createdAt
-    })
-    .from(auditEvents)
-    .orderBy(desc(auditEvents.createdAt))
-    .limit(20);
+  const rows = await withNeonRetry(() =>
+    db
+      .select({
+        id: auditEvents.id,
+        actor: auditEvents.actor,
+        action: auditEvents.action,
+        entityId: auditEvents.entityId,
+        details: auditEvents.details,
+        createdAt: auditEvents.createdAt
+      })
+      .from(auditEvents)
+      .orderBy(desc(auditEvents.createdAt))
+      .limit(20),
+  );
 
   return rows.map((row) => ({
     id: String(row.id),

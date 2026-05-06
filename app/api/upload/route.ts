@@ -7,7 +7,6 @@ import {
   type CandidateDuplicateWarning,
 } from "@/lib/db";
 import { extractResumeText } from "@/lib/resume-parser";
-import { generateResumeAiInsight, getResumeAiInsightConfig } from "@/lib/resume-ai-insight";
 import { expandResumeUploads } from "@/lib/resume-upload-files";
 import {
   analyzeCandidateResume,
@@ -145,22 +144,6 @@ export async function POST(request: Request) {
           fileName: file.name,
           error: error instanceof Error ? error.message : "Unknown parsing failure",
         });
-      }
-    }
-
-    const aiConfig = getResumeAiInsightConfig();
-    if (aiConfig) {
-      for (const { candidate } of uploadOutputs) {
-        try {
-          candidate.aiInsight = await generateResumeAiInsight({
-            config: aiConfig,
-            maskedResumeText: candidate.structured.biasMaskedText,
-            topRoleTitles: candidate.topPositions.slice(0, 4).map((position) => position.role.title),
-            candidateLabel: candidate.candidateName,
-          });
-        } catch {
-          candidate.aiInsight = null;
-        }
       }
     }
 
