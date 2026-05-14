@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { canAccess, createSessionToken, parseSessionToken } from "@/lib/auth";
-import { createPasswordHash, verifyCredentials, type SessionUser } from "@/lib/auth-model";
+import {
+  createPasswordHash,
+  getLoginThrottleStatus,
+  recordFailedLoginAttempt,
+  resetLoginThrottle,
+  resetLoginThrottleState,
+  verifyCredentials,
+  type SessionUser
+} from "@/lib/auth-model";
 
 const admin: SessionUser = {
   name: "Admin",
@@ -24,7 +32,11 @@ function setNodeEnv(value: typeof process.env.NODE_ENV) {
 beforeEach(() => {
   delete process.env.AUTH_SECRET;
   delete process.env.BETTER_AUTH_SECRET;
+  delete process.env.AUTH_LOGIN_MAX_ATTEMPTS;
+  delete process.env.AUTH_LOGIN_WINDOW_MINUTES;
+  delete process.env.AUTH_LOGIN_LOCKOUT_MINUTES;
   setNodeEnv("test");
+  resetLoginThrottleState();
   vi.useRealTimers();
 });
 
@@ -43,6 +55,10 @@ afterEach(() => {
 
   setNodeEnv(originalNodeEnv);
   delete process.env.AUTH_USERS_JSON;
+  delete process.env.AUTH_LOGIN_MAX_ATTEMPTS;
+  delete process.env.AUTH_LOGIN_WINDOW_MINUTES;
+  delete process.env.AUTH_LOGIN_LOCKOUT_MINUTES;
+  resetLoginThrottleState();
   vi.useRealTimers();
 });
 
@@ -138,5 +154,69 @@ describe("auth and RBAC", () => {
     });
     await expect(verifyCredentials("admin@example.com", "wrong-password")).resolves.toBeNull();
     delete process.env.AUTH_USERS_JSON;
+  });
+
+  it("throttles login attempts by normalized email and reports retry timing", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    process.env.AUTH_LOGIN_MAX_ATTEMPTS = "3";
+    process.env.AUTH_LOGIN_LOCKOUT_MINUTES = "10";
+
+    expect(recordFailedLoginAttempt({ email: " Admin@Example.com " })).toEqual({
+      throttled: false,
+      scope: null,
+      retryAfterSeconds: 0
+    });
+    expect(recordFailedLoginAttempt({ email: "admin@example.com" })).toEqual({
+      throttled: false,
+      scope: null,
+      retryAfterSeconds: 0
+    });
+
+    const thirdAttempt = recordFailedLoginAttempt({ email: "admin@example.com" });
+    expect(thirdAttempt.throttled).toBe(true);
+    expect(thirdAttempt.scope).toBe("email");
+    expect(thirdAttempt.retryAfterSeconds).toBe(600);
+
+    expect(getLoginThrottleStatus({ email: "ADMIN@example.com" })).toEqual(thirdAttempt);
+  });
+
+  it("throttles by IP independently from email and expires the lockout window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    process.env.AUTH_LOGIN_MAX_ATTEMPTS = "2";
+    process.env.AUTH_LOGIN_LOCKOUT_MINUTES = "1";
+
+    recordFailedLoginAttempt({ email: "first@example.com", ip: "203.0.113.10" });
+    const throttled = recordFailedLoginAttempt({ email: "second@example.com", ip: "203.0.113.10" });
+
+    expect(throttled.throttled).toBe(true);
+    expect(throttled.scope).toBe("ip");
+    expect(getLoginThrottleStatus({ email: "other@example.com", ip: "203.0.113.10" }).throttled).toBe(true);
+
+    vi.advanceTimersByTime(60_000);
+
+    expect(getLoginThrottleStatus({ email: "other@example.com", ip: "203.0.113.10" })).toEqual({
+      throttled: false,
+      scope: null,
+      retryAfterSeconds: 0
+    });
+  });
+
+  it("clears throttle state after a successful login path resets the subject", () => {
+    process.env.AUTH_LOGIN_MAX_ATTEMPTS = "2";
+
+    recordFailedLoginAttempt({ email: "user@example.com", ip: "198.51.100.20" });
+    recordFailedLoginAttempt({ email: "user@example.com", ip: "198.51.100.20" });
+
+    expect(getLoginThrottleStatus({ email: "user@example.com", ip: "198.51.100.20" }).throttled).toBe(true);
+
+    resetLoginThrottle({ email: "user@example.com", ip: "198.51.100.20" });
+
+    expect(getLoginThrottleStatus({ email: "user@example.com", ip: "198.51.100.20" })).toEqual({
+      throttled: false,
+      scope: null,
+      retryAfterSeconds: 0
+    });
   });
 });
