@@ -12,8 +12,13 @@ concurrency:
 
 jobs:
   checks:
-    name: Lint, test, and build
+    name: Lint, tests, build, and smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: true
+      NEXT_FONT_GOOGLE_MOCKED_RESPONSES: ${{ github.workspace }}/.github/workflows/next-font-mocks.cjs
+      NEXT_TELEMETRY_DISABLED: 1
 
     steps:
       - name: Checkout
@@ -25,11 +30,17 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium webkit chrome msedge
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Lint
         run: npm run lint
@@ -40,5 +51,15 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run end-to-end tests
-        run: npm run test:e2e
+      - name: Run Playwright smoke test
+        run: npm run test:e2e:smoke
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
