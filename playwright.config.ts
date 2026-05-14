@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
 
 /** Deterministic credential users used when Playwright starts `next dev` (avoid host .env Neon users). */
@@ -25,6 +26,9 @@ const PLAYWRIGHT_DEMO_USERS = JSON.stringify([
 const edgeChannel =
   process.env.PLAYWRIGHT_EDGE_CHANNEL ??
   (process.platform === "win32" ? "msedge" : undefined);
+const isCI = process.env.CI === "true" || process.env.CI === "1";
+const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
+const mockedFontResponsesPath = path.join(process.cwd(), ".github", "workflows", "next-font-mocks.cjs");
 
 type PlaywrightProject = NonNullable<PlaywrightTestConfig["projects"]>[number];
 
@@ -73,22 +77,28 @@ function getProjects(): PlaywrightProject[] {
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  forbidOnly: isCI,
+  retries: isCI ? 2 : 0,
   timeout: 30_000,
   workers: 1,
+  reporter: isCI
+    ? [["github"], ["html", { open: "never" }]]
+    : [["list"]],
   use: {
     baseURL: "http://127.0.0.1:3000",
     trace: "on-first-retry"
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
+    command: `${npmExecutable} run dev:ci -- --hostname 127.0.0.1 --port 3000`,
     env: {
       DATABASE_URL: "",
       AUTH_USERS_JSON: PLAYWRIGHT_DEMO_USERS,
       E2E_DISABLE_DATABASE: "1",
+      NEXT_FONT_GOOGLE_MOCKED_RESPONSES: mockedFontResponsesPath,
       NEXT_PUBLIC_SKILLMATCH_E2E_FILE_HOOK: "1"
     },
     url: "http://127.0.0.1:3000/login",
-    reuseExistingServer: process.env.PW_REUSE_SERVER === "1",
+    reuseExistingServer: !isCI && process.env.PW_REUSE_SERVER === "1",
     timeout: 30_000
   },
   projects: getProjects()
