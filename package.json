@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "dev:ci": "next dev --webpack",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
@@ -12,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:setup": "node scripts/migrate.mjs",
     "db:migrate": "node scripts/migrate.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test tests/e2e/skillmatch.spec.ts --grep \"allows signed-out users to open signup|requires credential sign-in, uploads a PDF resume, and ranks positions\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1040.0",
