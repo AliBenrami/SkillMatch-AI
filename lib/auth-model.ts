@@ -16,6 +16,24 @@ export type CredentialUser = SessionUser & {
   passwordHash?: string;
 };
 
+type LoginThrottleEntry = {
+  attempts: number;
+  windowStartedAt: number;
+  lockedUntil: number | null;
+};
+
+export type LoginThrottleResult = {
+  throttled: boolean;
+  scope: "email" | "ip" | null;
+  retryAfterSeconds: number;
+};
+
+type LoginThrottleConfig = {
+  maxAttempts: number;
+  windowMs: number;
+  lockoutMs: number;
+};
+
 const fallbackCredentialUsers: CredentialUser[] = [
   {
     name: "Priya Recruiter",
@@ -36,6 +54,127 @@ const fallbackCredentialUsers: CredentialUser[] = [
     password: "SkillMatchLearn!23"
   }
 ];
+
+const defaultLoginThrottleConfig: LoginThrottleConfig = {
+  maxAttempts: 5,
+  windowMs: 15 * 60 * 1000,
+  lockoutMs: 15 * 60 * 1000
+};
+
+const emailLoginThrottle = new Map<string, LoginThrottleEntry>();
+const ipLoginThrottle = new Map<string, LoginThrottleEntry>();
+
+function readPositiveIntegerEnv(name: string, fallback: number) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getLoginThrottleConfig(): LoginThrottleConfig {
+  return {
+    maxAttempts: readPositiveIntegerEnv("AUTH_LOGIN_MAX_ATTEMPTS", defaultLoginThrottleConfig.maxAttempts),
+    windowMs: readPositiveIntegerEnv("AUTH_LOGIN_WINDOW_MINUTES", defaultLoginThrottleConfig.windowMs / 60000) * 60000,
+    lockoutMs:
+      readPositiveIntegerEnv("AUTH_LOGIN_LOCKOUT_MINUTES", defaultLoginThrottleConfig.lockoutMs / 60000) * 60000
+  };
+}
+
+function normalizeThrottleEmail(email: string | null | undefined) {
+  const normalized = email?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function normalizeThrottleIp(ip: string | null | undefined) {
+  const normalized = ip?.trim();
+  return normalized ? normalized : null;
+}
+
+function resetThrottleEntry(map: Map<string, LoginThrottleEntry>, key: string) {
+  map.delete(key);
+}
+
+function getThrottleEntry(
+  map: Map<string, LoginThrottleEntry>,
+  key: string,
+  config: LoginThrottleConfig,
+  now: number
+) {
+  const entry = map.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.lockedUntil && entry.lockedUntil <= now) {
+    resetThrottleEntry(map, key);
+    return null;
+  }
+
+  if (!entry.lockedUntil && now - entry.windowStartedAt >= config.windowMs) {
+    resetThrottleEntry(map, key);
+    return null;
+  }
+
+  return entry;
+}
+
+function getThrottleStatusForScope(
+  map: Map<string, LoginThrottleEntry>,
+  key: string | null,
+  scope: "email" | "ip",
+  config: LoginThrottleConfig,
+  now: number
+): LoginThrottleResult | null {
+  if (!key) {
+    return null;
+  }
+
+  const entry = getThrottleEntry(map, key, config, now);
+  if (!entry?.lockedUntil || entry.lockedUntil <= now) {
+    return null;
+  }
+
+  return {
+    throttled: true,
+    scope,
+    retryAfterSeconds: Math.max(1, Math.ceil((entry.lockedUntil - now) / 1000))
+  };
+}
+
+function recordFailureForScope(
+  map: Map<string, LoginThrottleEntry>,
+  key: string | null,
+  config: LoginThrottleConfig,
+  now: number
+) {
+  if (!key) {
+    return;
+  }
+
+  const current = getThrottleEntry(map, key, config, now);
+  if (!current) {
+    map.set(key, {
+      attempts: 1,
+      windowStartedAt: now,
+      lockedUntil: config.maxAttempts <= 1 ? now + config.lockoutMs : null
+    });
+    return;
+  }
+
+  if (current.lockedUntil && current.lockedUntil > now) {
+    return;
+  }
+
+  const attempts = current.attempts + 1;
+  map.set(key, {
+    attempts,
+    windowStartedAt: current.windowStartedAt,
+    lockedUntil: attempts >= config.maxAttempts ? now + config.lockoutMs : null
+  });
+}
 
 export function createPasswordHash(password: string, salt = crypto.randomBytes(16).toString("base64url")) {
   const key = crypto.scryptSync(password, salt, 64).toString("base64url");
@@ -65,6 +204,53 @@ export function getCredentialUsers() {
   } catch {
     return [];
   }
+}
+
+export function getLoginThrottleStatus(input: { email?: string | null; ip?: string | null }, now = Date.now()) {
+  const config = getLoginThrottleConfig();
+  const emailStatus = getThrottleStatusForScope(
+    emailLoginThrottle,
+    normalizeThrottleEmail(input.email),
+    "email",
+    config,
+    now
+  );
+
+  if (emailStatus) {
+    return emailStatus;
+  }
+
+  return (
+    getThrottleStatusForScope(ipLoginThrottle, normalizeThrottleIp(input.ip), "ip", config, now) ?? {
+      throttled: false,
+      scope: null,
+      retryAfterSeconds: 0
+    }
+  );
+}
+
+export function recordFailedLoginAttempt(input: { email?: string | null; ip?: string | null }, now = Date.now()) {
+  const config = getLoginThrottleConfig();
+  recordFailureForScope(emailLoginThrottle, normalizeThrottleEmail(input.email), config, now);
+  recordFailureForScope(ipLoginThrottle, normalizeThrottleIp(input.ip), config, now);
+  return getLoginThrottleStatus(input, now);
+}
+
+export function resetLoginThrottle(input: { email?: string | null; ip?: string | null }) {
+  const normalizedEmail = normalizeThrottleEmail(input.email);
+  if (normalizedEmail) {
+    resetThrottleEntry(emailLoginThrottle, normalizedEmail);
+  }
+
+  const normalizedIp = normalizeThrottleIp(input.ip);
+  if (normalizedIp) {
+    resetThrottleEntry(ipLoginThrottle, normalizedIp);
+  }
+}
+
+export function resetLoginThrottleState() {
+  emailLoginThrottle.clear();
+  ipLoginThrottle.clear();
 }
 
 export async function verifyCredentials(email: string, password: string): Promise<SessionUser | null> {
